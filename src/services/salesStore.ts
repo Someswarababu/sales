@@ -1,0 +1,109 @@
+import type { Employee, Product, SaleRecord, SessionUser } from '../types'
+
+async function api<T>(path: string, options?: RequestInit): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(path, {
+      headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+      ...options,
+    })
+  } catch {
+    throw new Error('Could not reach the database. Confirm the sales portal is running.')
+  }
+
+  if (response.status === 204) return undefined as T
+
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(typeof body.error === 'string' ? body.error : 'Request failed')
+  }
+  return body as T
+}
+
+export function login(username: string, password: string) {
+  return api<SessionUser>('/api/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function listProducts() {
+  return api<Product[]>('/api/products')
+}
+
+export function saveProductRates(products: Product[]) {
+  return api<Product[]>('/api/products', {
+    method: 'PUT',
+    body: JSON.stringify(products),
+  })
+}
+
+export function addProduct(input: { name: string; unit: string; rate: number }) {
+  return api<Product>('/api/products', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteProduct(productId: string) {
+  return api<void>(`/api/products/${productId}`, { method: 'DELETE' })
+}
+
+export function listEmployees() {
+  return api<Employee[]>('/api/employees')
+}
+
+export function getEmployee(id: string) {
+  return api<Employee>(`/api/employees/${id}`)
+}
+
+export function addEmployee(input: { name: string; route: string }) {
+  return api<Employee>('/api/employees', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteEmployee(employeeId: string) {
+  return api<void>(`/api/employees/${employeeId}`, { method: 'DELETE' })
+}
+
+export function listSales(employeeId?: string) {
+  const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : ''
+  return api<SaleRecord[]>(`/api/sales${query}`)
+}
+
+export function recordSale(input: {
+  employeeId: string
+  date: string
+  quantities: Record<string, number>
+  expenses: number
+  attendance: 'full' | 'half' | 'absent'
+  recordedBy: string
+}) {
+  return api<SaleRecord>('/api/sales', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateSale(
+  saleId: string,
+  input: {
+    employeeId: string
+    date: string
+    quantities: Record<string, number>
+    expenses: number
+    attendance: 'full' | 'half' | 'absent'
+    recordedBy: string
+  },
+) {
+  return api<SaleRecord>(`/api/sales/${saleId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteSale(saleId: string) {
+  return api<void>(`/api/sales/${saleId}`, { method: 'DELETE' })
+}
