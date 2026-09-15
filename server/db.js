@@ -167,8 +167,14 @@ function seedIfEmpty() {
     const insertUser = db.prepare(
       'INSERT INTO users (id, name, username, password_hash, role) VALUES (?, ?, ?, ?, ?)',
     )
-    insertUser.run('u-admin', 'Admin', 'admin', hashPassword('admin123'), 'admin')
-    insertUser.run('u-manager', 'Manager', 'manager', hashPassword('manager123'), 'manager')
+    insertUser.run('u-admin', 'Admin', 'admin', hashPassword(process.env.ADMIN_PASSWORD || 'admin123'), 'admin')
+    insertUser.run(
+      'u-manager',
+      'Manager',
+      'manager',
+      hashPassword(process.env.MANAGER_PASSWORD || 'manager123'),
+      'manager',
+    )
   }
 }
 

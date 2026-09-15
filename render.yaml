@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: sales-portal
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: MANAGER_PASSWORD
+        sync: false
+    disk:
+      name: sales-data
+      mountPath: /data
+      sizeGB: 1
