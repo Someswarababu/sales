@@ -14,10 +14,13 @@ import {
   listProducts,
   listSales,
   loginUser,
+  ready,
   recordSale,
   saveProductRates,
   updateSale,
 } from './db.js'
+
+await ready
 
 const app = express()
 const isProd = process.env.NODE_ENV === 'production' || process.argv.includes('--prod')
@@ -44,53 +47,53 @@ function handle(fn) {
 
 app.post(
   '/api/login',
-  handle((req, res) => {
-    res.json(loginUser(req.body ?? {}))
+  handle(async (req, res) => {
+    res.json(await loginUser(req.body ?? {}))
   }),
 )
 
 app.get(
   '/api/products',
-  handle((_req, res) => {
-    res.json(listProducts())
+  handle(async (_req, res) => {
+    res.json(await listProducts())
   }),
 )
 
 app.put(
   '/api/products',
-  handle((req, res) => {
+  handle(async (req, res) => {
     if (!Array.isArray(req.body)) throw new Error('Products list is required')
-    saveProductRates(req.body)
-    res.json(listProducts())
+    await saveProductRates(req.body)
+    res.json(await listProducts())
   }),
 )
 
 app.post(
   '/api/products',
-  handle((req, res) => {
-    res.status(201).json(addProduct(req.body ?? {}))
+  handle(async (req, res) => {
+    res.status(201).json(await addProduct(req.body ?? {}))
   }),
 )
 
 app.delete(
   '/api/products/:id',
-  handle((req, res) => {
-    deleteProduct(req.params.id)
+  handle(async (req, res) => {
+    await deleteProduct(req.params.id)
     res.status(204).end()
   }),
 )
 
 app.get(
   '/api/employees',
-  handle((_req, res) => {
-    res.json(listEmployees())
+  handle(async (_req, res) => {
+    res.json(await listEmployees())
   }),
 )
 
 app.get(
   '/api/employees/:id',
-  handle((req, res) => {
-    const employee = getEmployee(req.params.id)
+  handle(async (req, res) => {
+    const employee = await getEmployee(req.params.id)
     if (!employee) throw new Error('Employee not found')
     res.json(employee)
   }),
@@ -98,45 +101,45 @@ app.get(
 
 app.post(
   '/api/employees',
-  handle((req, res) => {
-    res.status(201).json(addEmployee(req.body ?? {}))
+  handle(async (req, res) => {
+    res.status(201).json(await addEmployee(req.body ?? {}))
   }),
 )
 
 app.delete(
   '/api/employees/:id',
-  handle((req, res) => {
-    deleteEmployee(req.params.id)
+  handle(async (req, res) => {
+    await deleteEmployee(req.params.id)
     res.status(204).end()
   }),
 )
 
 app.get(
   '/api/sales',
-  handle((req, res) => {
+  handle(async (req, res) => {
     const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined
-    res.json(listSales(employeeId))
+    res.json(await listSales(employeeId))
   }),
 )
 
 app.post(
   '/api/sales',
-  handle((req, res) => {
-    res.status(201).json(recordSale(req.body ?? {}))
+  handle(async (req, res) => {
+    res.status(201).json(await recordSale(req.body ?? {}))
   }),
 )
 
 app.put(
   '/api/sales/:id',
-  handle((req, res) => {
-    res.json(updateSale(req.params.id, req.body ?? {}))
+  handle(async (req, res) => {
+    res.json(await updateSale(req.params.id, req.body ?? {}))
   }),
 )
 
 app.delete(
   '/api/sales/:id',
-  handle((req, res) => {
-    deleteSale(req.params.id)
+  handle(async (req, res) => {
+    await deleteSale(req.params.id)
     res.status(204).end()
   }),
 )

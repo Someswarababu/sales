@@ -1,21 +1,22 @@
 services:
   - type: web
     name: sales-portal
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    plan: starter
-    region: singapore
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
-        value: /data
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
       - key: ADMIN_PASSWORD
         sync: false
       - key: MANAGER_PASSWORD
         sync: false
-    disk:
-      name: sales-data
-      mountPath: /data
-      sizeGB: 1
