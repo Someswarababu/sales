@@ -74,7 +74,7 @@ export function DashboardPage() {
           ) : error ? (
             <p className="error">{error}</p>
           ) : (
-            <table>
+            <table className="stack-mobile">
               <thead>
                 <tr>
                   <th>Product</th>
@@ -84,8 +84,8 @@ export function DashboardPage() {
               <tbody>
                 {productTotals.map(({ product, quantity }) => (
                   <tr key={product.id}>
-                    <td>{product.name}</td>
-                    <td>
+                    <td data-label="Product">{product.name}</td>
+                    <td data-label="Sold">
                       {quantity} {product.unit}
                       {quantity === 1 ? '' : 's'}
                     </td>
@@ -147,7 +147,7 @@ export function DashboardPage() {
         {loading ? (
           <p className="muted">Loading…</p>
         ) : (
-          <table>
+          <table className="stack-mobile">
             <thead>
               <tr>
                 <th>Product</th>
@@ -158,12 +158,12 @@ export function DashboardPage() {
             <tbody>
               {productTotals.map(({ product, quantity, amount }) => (
                 <tr key={product.id}>
-                  <td>{product.name}</td>
-                  <td>
+                  <td data-label="Product">{product.name}</td>
+                  <td data-label="Sold">
                     {quantity} {product.unit}
                     {quantity === 1 ? '' : 's'}
                   </td>
-                  <td>{formatMoney(amount)}</td>
+                  <td data-label="Sales">{formatMoney(amount)}</td>
                 </tr>
               ))}
             </tbody>

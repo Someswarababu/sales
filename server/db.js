@@ -148,15 +148,15 @@ async function migrate() {
   }
 
   const productCols = await columns('products')
-  if (!productCols.includes('expense')) {
-    await exec('ALTER TABLE products ADD COLUMN expense REAL NOT NULL DEFAULT 0')
+  if (productCols.includes('expense')) {
+    await exec('ALTER TABLE products DROP COLUMN expense')
   }
   const lineCols = await columns('sale_lines')
-  if (!lineCols.includes('expense')) {
-    await exec('ALTER TABLE sale_lines ADD COLUMN expense REAL NOT NULL DEFAULT 0')
+  if (lineCols.includes('expense')) {
+    await exec('ALTER TABLE sale_lines DROP COLUMN expense')
   }
-  if (!lineCols.includes('expense_amount')) {
-    await exec('ALTER TABLE sale_lines ADD COLUMN expense_amount REAL NOT NULL DEFAULT 0')
+  if (lineCols.includes('expense_amount')) {
+    await exec('ALTER TABLE sale_lines DROP COLUMN expense_amount')
   }
   const saleCols = await columns('sales')
   if (!saleCols.includes('expenses')) {
@@ -230,9 +230,7 @@ async function seedIfEmpty() {
   }
 }
 
-export const ready = migrate()
-  .then(seedIfEmpty)
-  .then(() => exec('UPDATE sales SET net = total - expenses'))
+export const ready = migrate().then(seedIfEmpty)
 
 export async function listProducts() {
   return all('SELECT id, name, unit, rate FROM products ORDER BY name')

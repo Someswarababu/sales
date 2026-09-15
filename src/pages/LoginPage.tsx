@@ -24,8 +24,8 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <form className="card login-card" onSubmit={onSubmit}>
-        <h1>Employee Sales Portal</h1>
-        <p className="muted">Admin has full access. Manager can only write sales.</p>
+        <h1>Employee Salary Portal</h1>
+        {/* <p className="muted">Admin has full access. Manager can only write sales.</p> */}
         <label>
           Username
           <input value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -41,10 +41,10 @@ export function LoginPage() {
         </label>
         {error && <p className="error">{error}</p>}
         <button type="submit">Sign in</button>
-        <p className="hint">
+        {/* <p className="hint">
           Demo users: <code>admin</code> / <code>admin123</code> (full access) or{' '}
           <code>manager</code> / <code>manager123</code> (quantities only)
-        </p>
+        </p> */}
       </form>
     </div>
   )

@@ -51,7 +51,7 @@ export function EmployeesPage() {
         {loading ? (
           <p className="muted">Loading…</p>
         ) : (
-          <table>
+          <table className="stack-mobile">
             <thead>
               <tr>
                 <th>Name</th>
@@ -63,11 +63,13 @@ export function EmployeesPage() {
             <tbody>
               {employees.map((employee) => (
                 <tr key={employee.id}>
-                  <td>
+                  <td data-label="Name">
                     <strong>{employee.name}</strong>
                   </td>
-                  <td>{employee.route}</td>
-                  {canManage && <td>{formatMoney(employee.totalEarned ?? 0)}</td>}
+                  <td data-label="Route">{employee.route}</td>
+                  {canManage && (
+                    <td data-label="Net earned">{formatMoney(employee.totalEarned ?? 0)}</td>
+                  )}
                   <td className="actions">
                     <Link to={`/employees/${employee.id}/sales`}>Enter sales</Link>
                     {canManage && (

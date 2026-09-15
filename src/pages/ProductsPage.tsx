@@ -57,7 +57,7 @@ export function ProductsPage() {
           <p className="muted">Loading…</p>
         ) : (
           <form onSubmit={onSubmit}>
-            <table>
+            <table className="stack-mobile">
               <thead>
                 <tr>
                   <th>Product</th>
@@ -69,9 +69,9 @@ export function ProductsPage() {
               <tbody>
                 {products.map((product, index) => (
                   <tr key={product.id}>
-                    <td>{product.name}</td>
-                    <td>{product.unit}</td>
-                    <td>
+                    <td data-label="Product">{product.name}</td>
+                    <td data-label="Unit">{product.unit}</td>
+                    <td data-label="Rupees per unit">
                       <input
                         type="number"
                         min={1}
@@ -88,7 +88,7 @@ export function ProductsPage() {
                         }}
                       />
                     </td>
-                    <td>
+                    <td data-label="">
                       <button
                         type="button"
                         className="danger"

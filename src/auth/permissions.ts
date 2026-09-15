@@ -1,9 +1,5 @@
 import type { Role } from '../types'
 
-export function canWriteSales(role: Role) {
-  return role === 'admin' || role === 'manager'
-}
-
 export function canViewReports(role: Role) {
   return role === 'admin'
 }

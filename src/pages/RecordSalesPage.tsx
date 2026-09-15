@@ -94,6 +94,14 @@ export function RecordSalesPage() {
   const previewExpenses = Number(expenses || 0)
   const previewNet = previewTotal - previewExpenses
 
+  const allDaysSales = history.reduce((sum, sale) => sum + sale.total, 0)
+  const allDaysExpenses = history.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
+  const allDaysNet = history.reduce(
+    (sum, sale) => sum + (sale.net ?? sale.total - (sale.expenses ?? 0)),
+    0,
+  )
+  const daysPresent = history.filter((sale) => sale.attendance !== 'absent').length
+
   function onAttendanceChange(value: Attendance) {
     setAttendance(value)
     if (value === 'absent') {
@@ -200,7 +208,7 @@ export function RecordSalesPage() {
               <option value="absent">{showAmounts ? 'Absent — ₹0' : 'Absent'}</option>
             </select>
           </label>
-          <table className="sales-table">
+          <table className="sales-table stack-mobile">
             <thead>
               <tr>
                 <th>Product</th>
@@ -214,15 +222,15 @@ export function RecordSalesPage() {
                 const quantity = Number(quantities[product.id] || 0)
                 return (
                   <tr key={product.id}>
-                    <td>
+                    <td data-label="Product">
                       <strong>{product.name}</strong>
                     </td>
                     {showAmounts && (
-                      <td>
+                      <td data-label="Rate">
                         {formatMoney(product.rate)} / {product.unit}
                       </td>
                     )}
-                    <td>
+                    <td data-label="Quantity sold">
                       <input
                         type="number"
                         min={0}
@@ -236,7 +244,7 @@ export function RecordSalesPage() {
                       />
                     </td>
                     {showAmounts && (
-                      <td>{formatMoney(absent ? 0 : quantity * product.rate)}</td>
+                      <td data-label="Amount">{formatMoney(absent ? 0 : quantity * product.rate)}</td>
                     )}
                   </tr>
                 )
@@ -273,6 +281,29 @@ export function RecordSalesPage() {
             <Link to="/employees">Back</Link>
           </div>
         </form>
+      </article>
+      <article className="card">
+        <h3>All days total</h3>
+        <p className="muted">
+          {employee.name} · {history.length} day{history.length === 1 ? '' : 's'} recorded ·{' '}
+          {daysPresent} day{daysPresent === 1 ? '' : 's'} present
+        </p>
+        {showAmounts && (
+          <section className="grid-3">
+            <div>
+              <p className="muted">Sales</p>
+              <h2>{formatMoney(allDaysSales)}</h2>
+            </div>
+            <div>
+              <p className="muted">Expenses</p>
+              <h2>{formatMoney(allDaysExpenses)}</h2>
+            </div>
+            <div>
+              <p className="muted">Net earned</p>
+              <h2>{formatMoney(allDaysNet)}</h2>
+            </div>
+          </section>
+        )}
       </article>
       <article className="card">
         <h3>Saved entries</h3>
