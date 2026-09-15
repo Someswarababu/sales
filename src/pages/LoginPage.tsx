@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 export function LoginPage() {
   const { user, login } = useAuth()
@@ -23,6 +24,7 @@ export function LoginPage() {
 
   return (
     <div className="login-page">
+      <ThemeToggle className="secondary login-theme-toggle" />
       <form className="card login-card" onSubmit={onSubmit}>
         <h1>Employee Salary Portal</h1>
         {/* <p className="muted">Admin has full access. Manager can only write sales.</p> */}

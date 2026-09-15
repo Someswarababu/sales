@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { canManageRates } from '../auth/permissions'
+import { ThemeToggle } from './ThemeToggle'
 
 export function AppLayout() {
   const { user, logout } = useAuth()
@@ -35,6 +36,7 @@ export function AppLayout() {
           <span />
         </button>
         <strong>Employee Salary Portal</strong>
+        <ThemeToggle className="icon-only" />
       </header>
       <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />
       <aside className="sidebar">
@@ -49,6 +51,7 @@ export function AppLayout() {
           <NavLink to="/employees">Employees</NavLink>
           {user && canManageRates(user.role) && <NavLink to="/products">Product rates</NavLink>}
         </nav>
+        <ThemeToggle className="ghost" />
         <button
           className="ghost"
           onClick={() => {
