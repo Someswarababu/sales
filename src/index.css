@@ -87,7 +87,10 @@ button {
   box-shadow: var(--shadow-sm);
 }
 button:hover { background: var(--brand-dark); }
-button:active { transform: translateY(1px); }
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
 button:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
@@ -324,6 +327,55 @@ code {
 }
 .permission-row .muted {
   font-weight: 400;
+}
+
+.spinner {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 3px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.page-loader {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  padding: 2.4rem 1.35rem;
+  text-align: center;
+}
+.page-loader .muted { margin: 0; }
+
+.global-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  backdrop-filter: blur(2px);
+}
+.global-loader-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  min-width: 180px;
+  padding: 1.35rem 1.6rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.global-loader-card p {
+  margin: 0;
+  font-weight: 600;
 }
 
 .sales-table input { width: 140px; }

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { PERMISSION_CATALOG } from '../auth/permissions'
 import { listRolePermissions, saveRolePermissions } from '../services/salesStore'
+import { PageLoader } from '../components/PageLoader'
 import type { PermissionKey } from '../types'
 
 export function AccessPage() {
@@ -10,6 +11,7 @@ export function AccessPage() {
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   const current = roles.find((item) => item.role === selectedRole)
 
@@ -53,6 +55,7 @@ export function AccessPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    setSaving(true)
     try {
       const rows = await saveRolePermissions(selectedRole, draft)
       setRoles(rows)
@@ -60,6 +63,8 @@ export function AccessPage() {
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save access')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -71,12 +76,12 @@ export function AccessPage() {
         manager must sign in again, or refresh, to pick up changes.
       </p>
       {loading ? (
-        <p className="muted">Loading…</p>
+        <PageLoader />
       ) : (
         <form onSubmit={onSubmit}>
           <label>
             Role
-            <select value={selectedRole} onChange={(e) => onRoleChange(e.target.value)}>
+            <select value={selectedRole} onChange={(e) => onRoleChange(e.target.value)} disabled={saving}>
               {roles.map((item) => (
                 <option key={item.role} value={item.role}>
                   {item.role}
@@ -93,7 +98,7 @@ export function AccessPage() {
                   <input
                     type="checkbox"
                     checked={current?.locked || draft.includes(item.key)}
-                    disabled={current?.locked}
+                    disabled={current?.locked || saving}
                     onChange={() => toggle(item.key)}
                   />
                   <span>
@@ -106,8 +111,8 @@ export function AccessPage() {
           ))}
           {error && <p className="error">{error}</p>}
           <div className="actions">
-            <button type="submit" disabled={current?.locked}>
-              Save access
+            <button type="submit" disabled={current?.locked || saving}>
+              {saving ? 'Saving…' : 'Save access'}
             </button>
             {saved && <span className="muted">Saved. This role will use the new access on the next page load.</span>}
           </div>

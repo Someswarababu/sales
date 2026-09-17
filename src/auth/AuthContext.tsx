@@ -5,6 +5,7 @@ import { SESSION_TOKEN_KEY, SESSION_USER_KEY } from './session'
 
 type AuthContextValue = {
   user: SessionUser | null
+  ready: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -18,6 +19,7 @@ function readStoredUser(): SessionUser | null {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(readStoredUser)
+  const [ready, setReady] = useState(() => !sessionStorage.getItem(SESSION_TOKEN_KEY))
 
   function persist(next: SessionUser | null, token?: string) {
     if (!next) {
@@ -33,15 +35,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = sessionStorage.getItem(SESSION_TOKEN_KEY)
-    if (!token) return
+    if (!token) {
+      setReady(true)
+      return
+    }
     getSession()
       .then((next) => persist(next))
       .catch(() => persist(null))
+      .finally(() => setReady(true))
   }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      ready,
       login: async (username, password) => {
         const found = await loginRequest(username, password)
         const { token, ...next } = found
@@ -52,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         persist(null)
       },
     }),
-    [user],
+    [user, ready],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -9,6 +9,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     setMenuOpen(false)
@@ -62,11 +63,13 @@ export function AppLayout() {
         <button
           className="ghost"
           onClick={() => {
+            setSigningOut(true)
             logout()
             navigate('/login')
           }}
+          disabled={signingOut}
         >
-          Sign out
+          {signingOut ? 'Signing out…' : 'Sign out'}
         </button>
       </aside>
       <main className="content">

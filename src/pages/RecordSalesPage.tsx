@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { formatMoney } from '../format'
 import { getEmployee, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
 import { hasPermission } from '../auth/permissions'
+import { PageLoader } from '../components/PageLoader'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
 const ATTENDANCE_PAY: Record<Attendance, number> = {
@@ -48,12 +49,15 @@ export function RecordSalesPage() {
   const [missing, setMissing] = useState(false)
   const [popup, setPopup] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const absent = attendance === 'absent'
   const canRecord = hasPermission(user, 'recordSales')
   const canEdit = hasPermission(user, 'editSales')
   const canDelete = hasPermission(user, 'deleteSales')
   const fieldsLocked = (!canRecord && !editingId) || (Boolean(editingId) && !canEdit)
+  const actionBusy = saving || Boolean(deletingId)
 
   async function refreshHistory(id: string) {
     setHistory(await listSales(id))
@@ -79,9 +83,7 @@ export function RecordSalesPage() {
 
   if (loading) {
     return (
-      <section className="card">
-        <p className="muted">Loading…</p>
-      </section>
+      <PageLoader label="Loading sales sheet…" />
     )
   }
 
@@ -145,6 +147,7 @@ export function RecordSalesPage() {
       expenses: Number(expenses || 0),
       recordedBy: user?.name ?? 'Unknown',
     }
+    setSaving(true)
     try {
       if (editingId) {
         await updateSale(editingId, payload)
@@ -164,6 +167,8 @@ export function RecordSalesPage() {
       } else {
         setError(message)
       }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -209,14 +214,14 @@ export function RecordSalesPage() {
         <form onSubmit={onSubmit}>
           <label>
             Sale date
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={fieldsLocked} />
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={fieldsLocked || actionBusy} />
           </label>
           <label>
             Attendants
             <select
               value={attendance}
               onChange={(e) => onAttendanceChange(e.target.value as Attendance)}
-              disabled={fieldsLocked}
+              disabled={fieldsLocked || actionBusy}
             >
               <option value="full">{showAmounts ? 'Full day — ₹100' : 'Full day'}</option>
               <option value="half">{showAmounts ? 'Half day — ₹50' : 'Half day'}</option>
@@ -249,7 +254,7 @@ export function RecordSalesPage() {
                       {isRouteProduct(product) ? (
                         <select
                           value={quantities[product.id] ?? ''}
-                          disabled={absent || fieldsLocked}
+                          disabled={absent || fieldsLocked || actionBusy}
                           onChange={(e) =>
                             setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
                           }
@@ -269,7 +274,7 @@ export function RecordSalesPage() {
                           step={1}
                           placeholder={`0 ${product.unit}s`}
                           value={quantities[product.id] ?? ''}
-                          disabled={absent || fieldsLocked}
+                          disabled={absent || fieldsLocked || actionBusy}
                           onChange={(e) =>
                             setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
                           }
@@ -291,7 +296,7 @@ export function RecordSalesPage() {
               min={0}
               step={1}
               value={expenses}
-              disabled={fieldsLocked}
+              disabled={fieldsLocked || actionBusy}
               onChange={(e) => setExpenses(e.target.value)}
             />
           </label>
@@ -307,10 +312,12 @@ export function RecordSalesPage() {
           {error && <p className="error">{error}</p>}
           <div className="actions">
             {!fieldsLocked && (
-              <button type="submit">{editingId ? 'Update sales' : 'Save sales'}</button>
+              <button type="submit" disabled={saving || actionBusy}>
+                {saving ? (editingId ? 'Updating…' : 'Saving…') : editingId ? 'Update sales' : 'Save sales'}
+              </button>
             )}
             {editingId && (
-              <button type="button" className="secondary" onClick={cancelEdit}>
+              <button type="button" className="secondary" onClick={cancelEdit} disabled={saving}>
                 Cancel edit
               </button>
             )}
@@ -360,7 +367,7 @@ export function RecordSalesPage() {
                   </span>
                 )}
                 {canEdit && (
-                  <button type="button" className="secondary" onClick={() => startEdit(sale)}>
+                  <button type="button" className="secondary" onClick={() => startEdit(sale)} disabled={saving || Boolean(deletingId)}>
                     Edit
                   </button>
                 )}
@@ -368,12 +375,18 @@ export function RecordSalesPage() {
                   <button
                     type="button"
                     className="danger"
+                    disabled={saving || Boolean(deletingId)}
                     onClick={async () => {
-                      await deleteSale(sale.id)
-                      await refreshHistory(employeeId!)
+                      setDeletingId(sale.id)
+                      try {
+                        await deleteSale(sale.id)
+                        await refreshHistory(employeeId!)
+                      } finally {
+                        setDeletingId(null)
+                      }
                     }}
                   >
-                    Delete
+                    {deletingId === sale.id ? 'Removing…' : 'Delete'}
                   </button>
                 )}
               </div>

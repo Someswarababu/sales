@@ -1,29 +1,36 @@
 import { SESSION_TOKEN_KEY } from '../auth/session'
 import type { Employee, PermissionKey, Product, SaleRecord, SessionUser } from '../types'
+import { loadingLabelFor, startLoading, stopLoading } from './loading'
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const token = sessionStorage.getItem(SESSION_TOKEN_KEY)
-  let response: Response
+  const method = String(options?.method ?? 'GET').toUpperCase()
+  startLoading(loadingLabelFor(method, path))
   try {
-    response = await fetch(path, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options?.headers ?? {}),
-      },
-      ...options,
-    })
-  } catch {
-    throw new Error('Could not reach the database. Confirm the sales portal is running.')
-  }
+    let response: Response
+    try {
+      response = await fetch(path, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options?.headers ?? {}),
+        },
+        ...options,
+      })
+    } catch {
+      throw new Error('Could not reach the database. Confirm the sales portal is running.')
+    }
 
-  if (response.status === 204) return undefined as T
+    if (response.status === 204) return undefined as T
 
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(typeof body.error === 'string' ? body.error : 'Request failed')
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(typeof body.error === 'string' ? body.error : 'Request failed')
+    }
+    return body as T
+  } finally {
+    stopLoading()
   }
-  return body as T
 }
 
 export function login(username: string, password: string) {

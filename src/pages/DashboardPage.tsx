@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { hasPermission } from '../auth/permissions'
+import { PageLoader } from '../components/PageLoader'
 import { formatMoney } from '../format'
 import {
   buildEmployeeMonthCsv,
@@ -10,6 +11,7 @@ import {
   previousMonthValue,
 } from '../exportMonth'
 import { listEmployees, listProducts, listSales } from '../services/salesStore'
+import { startLoading, stopLoading } from '../services/loading'
 import type { Employee, Product, SaleRecord } from '../types'
 
 export function DashboardPage() {
@@ -19,6 +21,7 @@ export function DashboardPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [month, setMonth] = useState(previousMonthValue)
 
   const canSeeDashboard = hasPermission(user, 'viewDashboard')
@@ -60,8 +63,15 @@ export function DashboardPage() {
 
   function onExport(event: FormEvent) {
     event.preventDefault()
-    const csv = buildEmployeeMonthCsv(month, employees, products, sales)
-    downloadCsv(`employee-sales-${month}.csv`, csv)
+    setExporting(true)
+    startLoading('Exporting…')
+    try {
+      const csv = buildEmployeeMonthCsv(month, employees, products, sales)
+      downloadCsv(`employee-sales-${month}.csv`, csv)
+    } finally {
+      stopLoading()
+      setExporting(false)
+    }
   }
 
   if (!canSeeDashboard) {
@@ -88,7 +98,7 @@ export function DashboardPage() {
         <article className="card">
           <h3>Quantities sold</h3>
           {loading ? (
-            <p className="muted">Loading…</p>
+            <PageLoader />
           ) : error ? (
             <p className="error">{error}</p>
           ) : (
@@ -127,15 +137,15 @@ export function DashboardPage() {
       <section className="grid-3">
         <article className="card">
           <p className="muted">Sales</p>
-          <h2>{loading ? '…' : formatMoney(grandSales)}</h2>
+          <h2>{loading ? 'Loading…' : formatMoney(grandSales)}</h2>
         </article>
         <article className="card">
           <p className="muted">Expenses</p>
-          <h2>{loading ? '…' : formatMoney(grandExpenses)}</h2>
+          <h2>{loading ? 'Loading…' : formatMoney(grandExpenses)}</h2>
         </article>
         <article className="card">
           <p className="muted">Net earned</p>
-          <h2>{loading ? '…' : formatMoney(grandTotal)}</h2>
+          <h2>{loading ? 'Loading…' : formatMoney(grandTotal)}</h2>
         </article>
       </section>
       <article className="card">
@@ -151,8 +161,8 @@ export function DashboardPage() {
               <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
             </label>
             <div className="actions full">
-              <button type="submit" disabled={loading}>
-                Export {monthLabel(month)} CSV
+              <button type="submit" disabled={loading || exporting}>
+                {exporting ? 'Exporting…' : `Export ${monthLabel(month)} CSV`}
               </button>
               <span className="muted">
                 {monthSales.length} sale entries, {formatMoney(monthTotal)} net
@@ -167,7 +177,7 @@ export function DashboardPage() {
         <h3>Product totals</h3>
         <p className="muted">Product totals are sales only. Day expenses are subtracted once from the overall total.</p>
         {loading ? (
-          <p className="muted">Loading…</p>
+          <PageLoader />
         ) : (
           <table className="stack-mobile">
             <thead>

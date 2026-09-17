@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { addProduct, deleteProduct, listProducts, saveProductRates } from '../services/salesStore'
+import { PageLoader } from '../components/PageLoader'
 import type { Product } from '../types'
 
 export function ProductsPage() {
@@ -8,6 +9,9 @@ export function ProductsPage() {
   const [error, setError] = useState('')
   const [addError, setAddError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [unit, setUnit] = useState('')
   const [rate, setRate] = useState('1')
@@ -25,17 +29,21 @@ export function ProductsPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    setSaving(true)
     try {
       await saveProductRates(products)
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save rates')
+    } finally {
+      setSaving(false)
     }
   }
 
   async function onAdd(event: FormEvent) {
     event.preventDefault()
     setAddError('')
+    setAdding(true)
     try {
       await addProduct({ name, unit, rate: Number(rate) })
       setName('')
@@ -45,6 +53,22 @@ export function ProductsPage() {
       await refresh()
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Could not add product')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function onRemove(id: string) {
+    setError('')
+    setRemovingId(id)
+    try {
+      await deleteProduct(id)
+      setSaved(false)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove product')
+    } finally {
+      setRemovingId(null)
     }
   }
 
@@ -54,7 +78,7 @@ export function ProductsPage() {
         <h2>Product rates</h2>
         <p className="muted">Each sale amount is quantity × rate. Day expenses are entered on the sales sheet, not per product.</p>
         {loading ? (
-          <p className="muted">Loading…</p>
+          <PageLoader />
         ) : (
           <form onSubmit={onSubmit}>
             <table className="stack-mobile">
@@ -92,18 +116,10 @@ export function ProductsPage() {
                       <button
                         type="button"
                         className="danger"
-                        onClick={async () => {
-                          setError('')
-                          try {
-                            await deleteProduct(product.id)
-                            setSaved(false)
-                            await refresh()
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : 'Could not remove product')
-                          }
-                        }}
+                        disabled={Boolean(removingId) || saving || adding}
+                        onClick={() => onRemove(product.id)}
                       >
-                        Remove
+                        {removingId === product.id ? 'Removing…' : 'Remove'}
                       </button>
                     </td>
                   </tr>
@@ -112,7 +128,9 @@ export function ProductsPage() {
             </table>
             {error && <p className="error">{error}</p>}
             <div className="actions">
-              <button type="submit">Save rates</button>
+              <button type="submit" disabled={saving || adding || Boolean(removingId)}>
+                {saving ? 'Saving…' : 'Save rates'}
+              </button>
               {saved && <span className="muted">Saved. New sales will use these rates.</span>}
             </div>
           </form>
@@ -123,7 +141,7 @@ export function ProductsPage() {
         <form className="form-grid" onSubmit={onAdd}>
           <label>
             Name
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
+            <input value={name} onChange={(e) => setName(e.target.value)} required disabled={adding} />
           </label>
           <label>
             Unit
@@ -147,7 +165,9 @@ export function ProductsPage() {
           </label>
           {addError && <p className="error full">{addError}</p>}
           <div className="actions full">
-            <button type="submit">Add product</button>
+            <button type="submit" disabled={adding || saving}>
+              {adding ? 'Adding…' : 'Add product'}
+            </button>
           </div>
         </form>
       </section>

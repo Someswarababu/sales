@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { hasPermission } from '../auth/permissions'
 import { formatMoney } from '../format'
 import { addEmployee, deleteEmployee, listEmployees } from '../services/salesStore'
+import { PageLoader } from '../components/PageLoader'
 import type { Employee } from '../types'
 
 export function EmployeesPage() {
@@ -17,6 +18,8 @@ export function EmployeesPage() {
   const [route, setRoute] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
 
   async function refresh() {
     setEmployees(await listEmployees())
@@ -31,6 +34,7 @@ export function EmployeesPage() {
   async function onAdd(event: FormEvent) {
     event.preventDefault()
     setError('')
+    setAdding(true)
     try {
       await addEmployee({ name, route })
       setName('')
@@ -38,6 +42,21 @@ export function EmployeesPage() {
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add employee')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function onRemove(id: string) {
+    setError('')
+    setRemovingId(id)
+    try {
+      await deleteEmployee(id)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove employee')
+    } finally {
+      setRemovingId(null)
     }
   }
 
@@ -58,7 +77,7 @@ export function EmployeesPage() {
         </p>
         {error && <p className="error">{error}</p>}
         {loading ? (
-          <p className="muted">Loading…</p>
+          <PageLoader />
         ) : (
           <table className="stack-mobile">
             <thead>
@@ -87,12 +106,10 @@ export function EmployeesPage() {
                       <button
                         type="button"
                         className="danger"
-                        onClick={async () => {
-                          await deleteEmployee(employee.id)
-                          await refresh()
-                        }}
+                        disabled={removingId === employee.id || adding}
+                        onClick={() => onRemove(employee.id)}
                       >
-                        Delete
+                        {removingId === employee.id ? 'Removing…' : 'Delete'}
                       </button>
                     )}
                   </td>
@@ -108,15 +125,17 @@ export function EmployeesPage() {
           <form className="form-grid" onSubmit={onAdd}>
             <label>
               Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
+              <input value={name} onChange={(e) => setName(e.target.value)} required disabled={adding} />
             </label>
             <label>
               Route
-              <input value={route} onChange={(e) => setRoute(e.target.value)} required />
+              <input value={route} onChange={(e) => setRoute(e.target.value)} required disabled={adding} />
             </label>
             {error && <p className="error full">{error}</p>}
             <div className="actions full">
-              <button type="submit">Add employee</button>
+              <button type="submit" disabled={adding}>
+                {adding ? 'Adding…' : 'Add employee'}
+              </button>
             </div>
           </form>
         </section>
