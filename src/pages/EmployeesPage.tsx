@@ -1,14 +1,17 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { canManageEmployees } from '../auth/permissions'
+import { hasPermission } from '../auth/permissions'
 import { formatMoney } from '../format'
 import { addEmployee, deleteEmployee, listEmployees } from '../services/salesStore'
 import type { Employee } from '../types'
 
 export function EmployeesPage() {
   const { user } = useAuth()
-  const canManage = Boolean(user && canManageEmployees(user.role))
+  const canAdd = hasPermission(user, 'addEmployees')
+  const canRemove = hasPermission(user, 'removeEmployees')
+  const showAmounts = hasPermission(user, 'viewAmounts')
+  const canRecord = hasPermission(user, 'recordSales')
   const [employees, setEmployees] = useState<Employee[]>([])
   const [name, setName] = useState('')
   const [route, setRoute] = useState('')
@@ -43,9 +46,15 @@ export function EmployeesPage() {
       <section className="card">
         <h2>Employees</h2>
         <p className="muted">
-          {canManage
-            ? 'Full access: add or remove employees, and enter sales.'
-            : 'Write access: enter sales only. You cannot add, edit, or delete employees.'}
+          {canAdd && canRemove
+            ? 'You can add or remove employees, and open sales sheets.'
+            : canAdd
+              ? 'You can add employees and open sales sheets. Removing employees is turned off.'
+              : canRemove
+                ? 'You can remove employees and open sales sheets. Adding employees is turned off.'
+                : canRecord
+                  ? 'You can open sales sheets. You cannot add or remove employees.'
+                  : 'You can view employees. Saving sales is turned off for this role.'}
         </p>
         {error && <p className="error">{error}</p>}
         {loading ? (
@@ -56,7 +65,7 @@ export function EmployeesPage() {
               <tr>
                 <th>Name</th>
                 <th>Route</th>
-                {canManage && <th>Net earned</th>}
+                {showAmounts && <th>Net earned</th>}
                 <th></th>
               </tr>
             </thead>
@@ -67,12 +76,14 @@ export function EmployeesPage() {
                     <strong>{employee.name}</strong>
                   </td>
                   <td data-label="Route">{employee.route}</td>
-                  {canManage && (
+                  {showAmounts && (
                     <td data-label="Net earned">{formatMoney(employee.totalEarned ?? 0)}</td>
                   )}
                   <td className="actions">
-                    <Link to={`/employees/${employee.id}/sales`}>Enter sales</Link>
-                    {canManage && (
+                    <Link to={`/employees/${employee.id}/sales`}>
+                      {canRecord ? 'Enter sales' : 'View sales'}
+                    </Link>
+                    {canRemove && (
                       <button
                         type="button"
                         className="danger"
@@ -91,7 +102,7 @@ export function EmployeesPage() {
           </table>
         )}
       </section>
-      {canManage && (
+      {canAdd && (
         <section className="card">
           <h3>Add employee</h3>
           <form className="form-grid" onSubmit={onAdd}>

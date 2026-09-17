@@ -43,6 +43,43 @@ async function columns(table) {
   return rows.map((column) => column.name)
 }
 
+const PERMISSION_KEYS = [
+  'viewDashboard',
+  'viewAmounts',
+  'exportReports',
+  'viewEmployees',
+  'addEmployees',
+  'removeEmployees',
+  'recordSales',
+  'editSales',
+  'deleteSales',
+  'manageRates',
+]
+const DEFAULT_MANAGER_PERMISSIONS = ['viewDashboard', 'viewEmployees', 'recordSales']
+
+function parsePermissions(value) {
+  try {
+    const parsed = JSON.parse(value)
+    if (!Array.isArray(parsed)) return DEFAULT_MANAGER_PERMISSIONS
+    const next = parsed.flatMap((item) =>
+      item === 'manageEmployees' ? ['addEmployees', 'removeEmployees'] : [item],
+    )
+    return [...new Set(next.filter((item) => PERMISSION_KEYS.includes(item)))]
+  } catch {
+    return DEFAULT_MANAGER_PERMISSIONS
+  }
+}
+
+function publicUser(user, permissions) {
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    permissions: user.role === 'admin' ? [...PERMISSION_KEYS] : permissions,
+  }
+}
+
 function hashPassword(password) {
   const salt = randomBytes(16).toString('hex')
   const hash = scryptSync(password, salt, 32).toString('hex')
@@ -169,6 +206,27 @@ async function migrate() {
     await exec("ALTER TABLE sales ADD COLUMN attendance TEXT NOT NULL DEFAULT 'full'")
   }
   await exec('UPDATE sales SET net = total - expenses')
+
+  await exec(`
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role TEXT PRIMARY KEY,
+      permissions TEXT NOT NULL
+    );
+  `)
+  await exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `)
+  const managerAccess = await get('SELECT role FROM role_permissions WHERE role = ?', ['manager'])
+  if (!managerAccess) {
+    await exec('INSERT INTO role_permissions (role, permissions) VALUES (?, ?)', [
+      'manager',
+      JSON.stringify(DEFAULT_MANAGER_PERMISSIONS),
+    ])
+  }
 }
 
 async function seedIfEmpty() {
@@ -476,6 +534,61 @@ export async function deleteSale(id) {
   ])
 }
 
+export async function getPermissionsForRole(role) {
+  if (role === 'admin') return [...PERMISSION_KEYS]
+  const row = await get('SELECT permissions FROM role_permissions WHERE role = ?', [role])
+  return row ? parsePermissions(row.permissions) : DEFAULT_MANAGER_PERMISSIONS
+}
+
+export async function listRolePermissions() {
+  const users = await all('SELECT DISTINCT role FROM users ORDER BY role')
+  const stored = await all('SELECT role, permissions FROM role_permissions')
+  const byRole = new Map(stored.map((row) => [row.role, parsePermissions(row.permissions)]))
+  const roles = new Set(['admin', 'manager', ...users.map((row) => row.role)])
+  return [...roles].map((role) => ({
+    role,
+    locked: role === 'admin',
+    permissions: role === 'admin' ? [...PERMISSION_KEYS] : byRole.get(role) ?? DEFAULT_MANAGER_PERMISSIONS,
+  }))
+}
+
+export async function saveRolePermissions(role, permissions) {
+  const name = String(role ?? '').trim().toLowerCase()
+  if (!name || name === 'admin') throw new Error('Admin access cannot be changed')
+  const next = Array.isArray(permissions)
+    ? permissions.filter((item) => PERMISSION_KEYS.includes(item))
+    : []
+  const existing = await get('SELECT role FROM role_permissions WHERE role = ?', [name])
+  if (existing) {
+    await exec('UPDATE role_permissions SET permissions = ? WHERE role = ?', [JSON.stringify(next), name])
+  } else {
+    await exec('INSERT INTO role_permissions (role, permissions) VALUES (?, ?)', [name, JSON.stringify(next)])
+  }
+  return listRolePermissions()
+}
+
+export async function getUserByToken(token) {
+  const value = String(token ?? '').trim()
+  if (!value) return null
+  const session = await get('SELECT user_id FROM sessions WHERE token = ?', [value])
+  if (!session) return null
+  const user = await get('SELECT id, name, username, role FROM users WHERE id = ?', [session.user_id])
+  if (!user) return null
+  return publicUser(user, await getPermissionsForRole(user.role))
+}
+
+export async function getSessionUser(userId) {
+  const user = await get('SELECT id, name, username, role FROM users WHERE id = ?', [userId])
+  if (!user) return null
+  return publicUser(user, await getPermissionsForRole(user.role))
+}
+
+export async function logoutUser(token) {
+  const value = String(token ?? '').trim()
+  if (!value) return
+  await exec('DELETE FROM sessions WHERE token = ?', [value])
+}
+
 export async function loginUser({ username, password }) {
   const name = String(username ?? '').trim()
   const pass = String(password ?? '')
@@ -490,5 +603,15 @@ export async function loginUser({ username, password }) {
     error.status = 401
     throw error
   }
-  return { id: user.id, name: user.name, username: user.username, role: user.role }
+  await exec('DELETE FROM sessions WHERE user_id = ?', [user.id])
+  const token = randomBytes(32).toString('hex')
+  await exec('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [
+    token,
+    user.id,
+    new Date().toISOString(),
+  ])
+  return {
+    ...publicUser(user, await getPermissionsForRole(user.role)),
+    token,
+  }
 }

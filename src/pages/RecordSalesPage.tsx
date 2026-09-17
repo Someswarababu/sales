@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { formatMoney } from '../format'
 import { getEmployee, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
-import { canDeleteSales, canEditSales, canViewAmounts } from '../auth/permissions'
+import { hasPermission } from '../auth/permissions'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
 const ATTENDANCE_PAY: Record<Attendance, number> = {
@@ -18,8 +18,14 @@ const ATTENDANCE_LABEL: Record<Attendance, string> = {
   full: 'Full day',
 }
 
+const ROUTE_FRACTIONS = [0.5, 1, 1.5, 2, 2.5, 3]
+
 function isAttendanceProduct(product: Product) {
   return product.id === 'attendants' || /attendant/i.test(product.name)
+}
+
+function isRouteProduct(product: Product) {
+  return product.id === 'other-routes' || /route/i.test(product.unit) || /route/i.test(product.name)
 }
 
 function unitLabel(unit: string, quantity: number) {
@@ -29,7 +35,7 @@ function unitLabel(unit: string, quantity: number) {
 export function RecordSalesPage() {
   const { employeeId } = useParams()
   const { user } = useAuth()
-  const showAmounts = Boolean(user && canViewAmounts(user.role))
+  const showAmounts = hasPermission(user, 'viewAmounts')
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
@@ -44,7 +50,10 @@ export function RecordSalesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const absent = attendance === 'absent'
-  const canEdit = Boolean(user && canEditSales(user.role))
+  const canRecord = hasPermission(user, 'recordSales')
+  const canEdit = hasPermission(user, 'editSales')
+  const canDelete = hasPermission(user, 'deleteSales')
+  const fieldsLocked = (!canRecord && !editingId) || (Boolean(editingId) && !canEdit)
 
   async function refreshHistory(id: string) {
     setHistory(await listSales(id))
@@ -114,6 +123,10 @@ export function RecordSalesPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
     setError('')
+    if (editingId ? !canEdit : !canRecord) {
+      setError('You do not have permission to save this entry.')
+      return
+    }
     const alreadySaved = history.some((sale) => sale.date === date && sale.id !== editingId)
     if (alreadySaved) {
       setPopup('An entry is already added for this date. You cannot add another entry.')
@@ -191,17 +204,19 @@ export function RecordSalesPage() {
           {showAmounts
             ? 'Attendants: full day ₹100, half day ₹50, absent ₹0. If absent, other products are locked. Expenses can still be entered. Absent days save with no sold quantity.'
             : 'Choose full day, half day, or absent. If absent, other products are locked. Absent days are saved for that date.'}
+          {!canRecord && !canEdit ? ' This role can view the sheet but cannot save changes.' : ''}
         </p>
         <form onSubmit={onSubmit}>
           <label>
             Sale date
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={fieldsLocked} />
           </label>
           <label>
             Attendants
             <select
               value={attendance}
               onChange={(e) => onAttendanceChange(e.target.value as Attendance)}
+              disabled={fieldsLocked}
             >
               <option value="full">{showAmounts ? 'Full day — ₹100' : 'Full day'}</option>
               <option value="half">{showAmounts ? 'Half day — ₹50' : 'Half day'}</option>
@@ -231,17 +246,35 @@ export function RecordSalesPage() {
                       </td>
                     )}
                     <td data-label="Quantity sold">
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        placeholder={`0 ${product.unit}s`}
-                        value={quantities[product.id] ?? ''}
-                        disabled={absent}
-                        onChange={(e) =>
-                          setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
-                        }
-                      />
+                      {isRouteProduct(product) ? (
+                        <select
+                          value={quantities[product.id] ?? ''}
+                          disabled={absent || fieldsLocked}
+                          onChange={(e) =>
+                            setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
+                          }
+                        >
+                          <option value="">No {product.unit}</option>
+                          {ROUTE_FRACTIONS.map((fraction) => (
+                            <option key={fraction} value={fraction}>
+                              {fraction} {product.unit}
+                              {showAmounts ? ` — ${formatMoney(fraction * product.rate)}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          placeholder={`0 ${product.unit}s`}
+                          value={quantities[product.id] ?? ''}
+                          disabled={absent || fieldsLocked}
+                          onChange={(e) =>
+                            setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
+                          }
+                        />
+                      )}
                     </td>
                     {showAmounts && (
                       <td data-label="Amount">{formatMoney(absent ? 0 : quantity * product.rate)}</td>
@@ -258,6 +291,7 @@ export function RecordSalesPage() {
               min={0}
               step={1}
               value={expenses}
+              disabled={fieldsLocked}
               onChange={(e) => setExpenses(e.target.value)}
             />
           </label>
@@ -272,7 +306,9 @@ export function RecordSalesPage() {
           )}
           {error && <p className="error">{error}</p>}
           <div className="actions">
-            <button type="submit">{editingId ? 'Update sales' : 'Save sales'}</button>
+            {!fieldsLocked && (
+              <button type="submit">{editingId ? 'Update sales' : 'Save sales'}</button>
+            )}
             {editingId && (
               <button type="button" className="secondary" onClick={cancelEdit}>
                 Cancel edit
@@ -328,7 +364,7 @@ export function RecordSalesPage() {
                     Edit
                   </button>
                 )}
-                {user && canDeleteSales(user.role) && (
+                {user && canDelete && (
                   <button
                     type="button"
                     className="danger"

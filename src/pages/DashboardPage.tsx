@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { canViewReports } from '../auth/permissions'
+import { hasPermission } from '../auth/permissions'
 import { formatMoney } from '../format'
 import {
   buildEmployeeMonthCsv,
@@ -21,7 +21,15 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState(previousMonthValue)
 
+  const canSeeDashboard = hasPermission(user, 'viewDashboard')
+  const showAmounts = hasPermission(user, 'viewAmounts')
+  const canExport = hasPermission(user, 'exportReports')
+
   useEffect(() => {
+    if (!canSeeDashboard) {
+      setLoading(false)
+      return
+    }
     Promise.all([listProducts(), listSales(), listEmployees()])
       .then(([productList, saleList, employeeList]) => {
         setProducts(productList)
@@ -30,7 +38,7 @@ export function DashboardPage() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load dashboard'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [canSeeDashboard])
 
   const monthSales = sales.filter((sale) => sale.date.startsWith(month))
   const monthTotal = monthSales.reduce((sum, sale) => sum + (sale.net ?? sale.total), 0)
@@ -56,16 +64,26 @@ export function DashboardPage() {
     downloadCsv(`employee-sales-${month}.csv`, csv)
   }
 
-  if (user && !canViewReports(user.role)) {
+  if (!canSeeDashboard) {
+    if (hasPermission(user, 'viewEmployees')) return <Navigate to="/employees" replace />
+    if (hasPermission(user, 'manageRates')) return <Navigate to="/products" replace />
+    return (
+      <section className="card">
+        <h2>No dashboard access</h2>
+        <p className="muted">Ask an admin to grant access to a section.</p>
+      </section>
+    )
+  }
+
+  if (!showAmounts) {
     return (
       <section className="stack">
         <article className="card">
           <h2>Write sales</h2>
           <p className="muted">
-            Manager access is quantity-only. Enter sold units for employees. You cannot see rupee
-            amounts, change rates, add or remove employees, or delete records.
+            Quantity-only access. Rupee amounts stay hidden until an admin grants them.
           </p>
-          <Link to="/employees">Enter sales</Link>
+          {hasPermission(user, 'viewEmployees') && <Link to="/employees">Enter sales</Link>}
         </article>
         <article className="card">
           <h3>Quantities sold</h3>
@@ -126,20 +144,24 @@ export function DashboardPage() {
           At the start of each month, export the previous month’s overall employee sales. The month
           picker defaults to {monthLabel(previousMonthValue())}.
         </p>
-        <form className="form-grid" onSubmit={onExport}>
-          <label>
-            Month
-            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
-          </label>
-          <div className="actions full">
-            <button type="submit" disabled={loading}>
-              Export {monthLabel(month)} CSV
-            </button>
-            <span className="muted">
-              {monthSales.length} sale entries, {formatMoney(monthTotal)} net
-            </span>
-          </div>
-        </form>
+        {canExport ? (
+          <form className="form-grid" onSubmit={onExport}>
+            <label>
+              Month
+              <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
+            </label>
+            <div className="actions full">
+              <button type="submit" disabled={loading}>
+                Export {monthLabel(month)} CSV
+              </button>
+              <span className="muted">
+                {monthSales.length} sale entries, {formatMoney(monthTotal)} net
+              </span>
+            </div>
+          </form>
+        ) : (
+          <p className="muted">CSV export is turned off for this role.</p>
+        )}
       </article>
       <article className="card">
         <h3>Product totals</h3>

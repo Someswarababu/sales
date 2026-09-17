@@ -296,6 +296,36 @@ code {
   font-size: 0.9em;
 }
 
+.permission-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.85rem 1rem 0.4rem;
+  margin: 1rem 0;
+}
+.permission-group legend {
+  padding: 0 0.35rem;
+  font-weight: 650;
+}
+.permission-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  font-weight: 500;
+  margin-bottom: 0.75rem;
+}
+.permission-row input[type='checkbox'] {
+  width: auto;
+  margin-top: 0.3rem;
+  accent-color: var(--brand);
+}
+.permission-row span {
+  display: grid;
+  gap: 0.1rem;
+}
+.permission-row .muted {
+  font-weight: 400;
+}
+
 .sales-table input { width: 140px; }
 .sale-block {
   padding: 1rem;

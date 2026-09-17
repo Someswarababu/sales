@@ -1,8 +1,7 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { SessionUser } from '../types'
-import { login as loginRequest } from '../services/salesStore'
-
-const SESSION_KEY = 'esp.v4.user'
+import { getSession, login as loginRequest, logoutSession } from '../services/salesStore'
+import { SESSION_TOKEN_KEY, SESSION_USER_KEY } from './session'
 
 type AuthContextValue = {
   user: SessionUser | null
@@ -12,23 +11,45 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function readStoredUser(): SessionUser | null {
+  const raw = sessionStorage.getItem(SESSION_USER_KEY)
+  return raw ? (JSON.parse(raw) as SessionUser) : null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<SessionUser | null>(() => {
-    const raw = sessionStorage.getItem(SESSION_KEY)
-    return raw ? (JSON.parse(raw) as SessionUser) : null
-  })
+  const [user, setUser] = useState<SessionUser | null>(readStoredUser)
+
+  function persist(next: SessionUser | null, token?: string) {
+    if (!next) {
+      sessionStorage.removeItem(SESSION_USER_KEY)
+      sessionStorage.removeItem(SESSION_TOKEN_KEY)
+      setUser(null)
+      return
+    }
+    if (token) sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+    sessionStorage.setItem(SESSION_USER_KEY, JSON.stringify(next))
+    setUser(next)
+  }
+
+  useEffect(() => {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY)
+    if (!token) return
+    getSession()
+      .then((next) => persist(next))
+      .catch(() => persist(null))
+  }, [])
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       login: async (username, password) => {
         const found = await loginRequest(username, password)
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(found))
-        setUser(found)
+        const { token, ...next } = found
+        persist(next, token)
       },
       logout: () => {
-        sessionStorage.removeItem(SESSION_KEY)
-        setUser(null)
+        void logoutSession().catch(() => undefined)
+        persist(null)
       },
     }),
     [user],

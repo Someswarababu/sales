@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { canManageRates } from '../auth/permissions'
+import { hasPermission } from '../auth/permissions'
 import { ThemeToggle } from './ThemeToggle'
 
 export function AppLayout() {
@@ -42,14 +42,21 @@ export function AppLayout() {
       <aside className="sidebar">
         <div className="brand">
           <strong>Employee Salary Portal</strong>
-          <span>{user?.role === 'admin' ? 'Admin · full access' : 'Manager · write access'}</span>
+          <span>
+            {user?.role === 'admin'
+              ? 'Admin · full access'
+              : `${user?.role ?? 'User'} · assigned access`}
+          </span>
         </div>
         <nav>
-          <NavLink to="/" end>
-            Dashboard
-          </NavLink>
-          <NavLink to="/employees">Employees</NavLink>
-          {user && canManageRates(user.role) && <NavLink to="/products">Product rates</NavLink>}
+          {hasPermission(user, 'viewDashboard') && (
+            <NavLink to="/" end>
+              Dashboard
+            </NavLink>
+          )}
+          {hasPermission(user, 'viewEmployees') && <NavLink to="/employees">Employees</NavLink>}
+          {hasPermission(user, 'manageRates') && <NavLink to="/products">Product rates</NavLink>}
+          {user?.role === 'admin' && <NavLink to="/access">Role access</NavLink>}
         </nav>
         <ThemeToggle className="ghost" />
         <button

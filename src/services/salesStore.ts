@@ -1,10 +1,16 @@
-import type { Employee, Product, SaleRecord, SessionUser } from '../types'
+import { SESSION_TOKEN_KEY } from '../auth/session'
+import type { Employee, PermissionKey, Product, SaleRecord, SessionUser } from '../types'
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY)
   let response: Response
   try {
     response = await fetch(path, {
-      headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options?.headers ?? {}),
+      },
       ...options,
     })
   } catch {
@@ -21,9 +27,34 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export function login(username: string, password: string) {
-  return api<SessionUser>('/api/login', {
+  return api<SessionUser & { token: string }>('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
+  })
+}
+
+export function logoutSession() {
+  return api<void>('/api/logout', { method: 'POST' })
+}
+
+export function getSession() {
+  return api<SessionUser>('/api/me')
+}
+
+export type RolePermissionRow = {
+  role: string
+  permissions: PermissionKey[]
+  locked: boolean
+}
+
+export function listRolePermissions() {
+  return api<RolePermissionRow[]>('/api/role-permissions')
+}
+
+export function saveRolePermissions(role: string, permissions: PermissionKey[]) {
+  return api<RolePermissionRow[]>('/api/role-permissions', {
+    method: 'PUT',
+    body: JSON.stringify({ role, permissions }),
   })
 }
 

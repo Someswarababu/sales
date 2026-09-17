@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppLayout } from './components/AppLayout'
+import { AccessPage } from './pages/AccessPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { LoginPage } from './pages/LoginPage'
@@ -23,7 +24,7 @@ export default function App() {
         <Route
           path="employees"
           element={
-            <RequireAuth roles={['admin', 'manager']}>
+            <RequireAuth permission="viewEmployees">
               <EmployeesPage />
             </RequireAuth>
           }
@@ -31,7 +32,7 @@ export default function App() {
         <Route
           path="employees/:employeeId/sales"
           element={
-            <RequireAuth roles={['admin', 'manager']}>
+            <RequireAuth permission="viewEmployees">
               <RecordSalesPage />
             </RequireAuth>
           }
@@ -39,8 +40,16 @@ export default function App() {
         <Route
           path="products"
           element={
-            <RequireAuth roles={['admin']}>
+            <RequireAuth permission="manageRates">
               <ProductsPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="access"
+          element={
+            <RequireAuth roles={['admin']}>
+              <AccessPage />
             </RequireAuth>
           }
         />

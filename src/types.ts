@@ -1,5 +1,17 @@
 export type Role = 'admin' | 'manager'
 
+export type PermissionKey =
+  | 'viewDashboard'
+  | 'viewAmounts'
+  | 'exportReports'
+  | 'viewEmployees'
+  | 'addEmployees'
+  | 'removeEmployees'
+  | 'recordSales'
+  | 'editSales'
+  | 'deleteSales'
+  | 'manageRates'
+
 export type Attendance = 'full' | 'half' | 'absent'
 
 export type Product = {
@@ -41,4 +53,5 @@ export type SessionUser = {
   name: string
   username: string
   role: Role
+  permissions: PermissionKey[]
 }
