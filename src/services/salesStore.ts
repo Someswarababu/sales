@@ -119,6 +119,8 @@ export function recordSale(input: {
   expenses: number
   attendance: 'full' | 'half' | 'absent'
   recordedBy: string
+  routePersonId?: string
+  routePersonCount?: number
 }) {
   return api<SaleRecord>('/api/sales', {
     method: 'POST',
@@ -135,6 +137,8 @@ export function updateSale(
     expenses: number
     attendance: 'full' | 'half' | 'absent'
     recordedBy: string
+    routePersonId?: string
+    routePersonCount?: number
   },
 ) {
   return api<SaleRecord>(`/api/sales/${saleId}`, {

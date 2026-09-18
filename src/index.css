@@ -379,6 +379,21 @@ code {
 }
 
 .sales-table input { width: 140px; }
+.sales-table .route-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 240px;
+}
+.sales-table .route-fields select { width: auto; min-width: 84px; }
+.route-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.route-people select { min-width: 120px; }
+.route-share { white-space: nowrap; }
 .sale-block {
   padding: 1rem;
   border: 1px solid var(--line);

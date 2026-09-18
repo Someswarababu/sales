@@ -44,6 +44,10 @@ export type SaleRecord = {
   total: number
   expenses: number
   net: number
+  routePersonId?: string
+  routePersonName?: string
+  routeCount?: number
+  routePersonCount?: number
   recordedBy: string
   recordedAt: string
 }

@@ -205,7 +205,46 @@ async function migrate() {
   if (!saleCols.includes('attendance')) {
     await exec("ALTER TABLE sales ADD COLUMN attendance TEXT NOT NULL DEFAULT 'full'")
   }
+  if (!saleCols.includes('route_person_id')) {
+    await exec('ALTER TABLE sales ADD COLUMN route_person_id TEXT')
+  }
+  if (!saleCols.includes('route_count')) {
+    await exec('ALTER TABLE sales ADD COLUMN route_count REAL NOT NULL DEFAULT 0')
+  }
+  if (!saleCols.includes('route_person_count')) {
+    await exec('ALTER TABLE sales ADD COLUMN route_person_count INTEGER NOT NULL DEFAULT 1')
+  }
   await exec('UPDATE sales SET net = total - expenses')
+
+  await exec(`
+    CREATE TABLE IF NOT EXISTS route_credits (
+      source_sale_id TEXT NOT NULL,
+      target_employee_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      PRIMARY KEY (source_sale_id, target_employee_id)
+    );
+  `)
+  const creditInfo = await all('PRAGMA table_info(route_credits)')
+  const creditPk = creditInfo.filter((column) => Number(column.pk) > 0).map((column) => column.name)
+  if (creditPk.length === 1 && creditPk[0] === 'source_sale_id') {
+    await exec(`
+      CREATE TABLE route_credits_new (
+        source_sale_id TEXT NOT NULL,
+        target_employee_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        product_id TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        PRIMARY KEY (source_sale_id, target_employee_id)
+      );
+    `)
+    await exec(
+      'INSERT OR IGNORE INTO route_credits_new (source_sale_id, target_employee_id, date, product_id, quantity) SELECT source_sale_id, target_employee_id, date, product_id, quantity FROM route_credits',
+    )
+    await exec('DROP TABLE route_credits')
+    await exec('ALTER TABLE route_credits_new RENAME TO route_credits')
+  }
 
   await exec(`
     CREATE TABLE IF NOT EXISTS role_permissions (
@@ -415,10 +454,15 @@ export async function addEmployee({ name, route }) {
 
 export async function deleteEmployee(id) {
   await batch([
+    { sql: 'DELETE FROM route_credits WHERE target_employee_id = ? OR source_sale_id IN (SELECT id FROM sales WHERE employee_id = ?)', args: [id, id] },
     { sql: 'DELETE FROM sale_lines WHERE sale_id IN (SELECT id FROM sales WHERE employee_id = ?)', args: [id] },
     { sql: 'DELETE FROM sales WHERE employee_id = ?', args: [id] },
     { sql: 'DELETE FROM employees WHERE id = ?', args: [id] },
   ])
+}
+
+function parsePersonIds(value) {
+  return [...new Set(String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean))]
 }
 
 async function attachLines(sales) {
@@ -438,25 +482,48 @@ async function attachLines(sales) {
       amount: line.amount,
     })
   }
-  return sales.map((sale) => ({
-    id: sale.id,
-    employeeId: sale.employee_id,
-    date: sale.date,
-    total: sale.total,
-    expenses: sale.expenses ?? 0,
-    net: sale.net ?? sale.total - (sale.expenses ?? 0),
-    attendance: sale.attendance || 'full',
-    recordedBy: sale.recorded_by,
-    recordedAt: sale.recorded_at,
-    lines: bySale.get(sale.id) ?? [],
-  }))
+  const personIds = [...new Set(sales.flatMap((sale) => parsePersonIds(sale.route_person_id)))]
+  const nameById = new Map()
+  if (personIds.length > 0) {
+    const rows = await all(
+      `SELECT id, name FROM employees WHERE id IN (${personIds.map(() => '?').join(',')})`,
+      personIds,
+    )
+    for (const row of rows) nameById.set(row.id, row.name)
+  }
+  return sales.map((sale) => {
+    const ids = parsePersonIds(sale.route_person_id)
+    return {
+      id: sale.id,
+      employeeId: sale.employee_id,
+      date: sale.date,
+      total: sale.total,
+      expenses: sale.expenses ?? 0,
+      net: sale.net ?? sale.total - (sale.expenses ?? 0),
+      attendance: sale.attendance || 'full',
+      routePersonId: ids.join(','),
+      routePersonName: ids.map((id) => nameById.get(id) || id).join(', '),
+      routeCount: Number(sale.route_count ?? 0),
+      routePersonCount: Number(sale.route_person_count ?? 1),
+      recordedBy: sale.recorded_by,
+      recordedAt: sale.recorded_at,
+      lines: bySale.get(sale.id) ?? [],
+    }
+  })
 }
 
 export async function listSales(employeeId) {
   const sales = employeeId
-    ? await all('SELECT * FROM sales WHERE employee_id = ? ORDER BY date DESC, recorded_at DESC', [employeeId])
+    ? await all(
+        'SELECT * FROM sales WHERE employee_id = ? ORDER BY date DESC, recorded_at DESC',
+        [employeeId],
+      )
     : await all('SELECT * FROM sales ORDER BY date DESC, recorded_at DESC')
   return attachLines(sales)
+}
+
+function isRouteProduct(product) {
+  return product.id === 'other-routes' || /route/i.test(product.unit || '') || /route/i.test(product.name || '')
 }
 
 function isLoadingProduct(product) {
@@ -467,7 +534,19 @@ function isAttendantProduct(product) {
   return product.id === 'attendants' || /attendant/i.test(product.name)
 }
 
-async function buildSaleRecord({ id, employeeId, date, quantities, expenses, attendance, recordedBy, recordedAt }) {
+async function buildSaleRecord({
+  id,
+  employeeId,
+  date,
+  quantities,
+  expenses,
+  attendance,
+  recordedBy,
+  recordedAt,
+  routePersonId,
+  routePersonCount,
+  splitRoutes = true,
+}) {
   const employee = await getEmployee(employeeId)
   if (!employee) throw new Error('Employee not found')
   if (!date) throw new Error('Date is required')
@@ -501,6 +580,10 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
     products = await listProducts()
   }
 
+  const personCount = Math.max(1, Math.round(Number(routePersonCount) || 1))
+  const companionIds =
+    personCount > 1 ? parsePersonIds(routePersonId).filter((id) => id !== employeeId) : []
+
   const lines = products.map((product) => {
     if (isAttendantProduct(product)) {
       return {
@@ -510,9 +593,12 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
         amount: attendancePay[status],
       }
     }
-    const quantity = status === 'absent' ? 0 : Number(quantities?.[product.id] ?? 0)
+    let quantity = status === 'absent' ? 0 : Number(quantities?.[product.id] ?? 0)
     if (Number.isNaN(quantity) || quantity < 0) {
       throw new Error(`Invalid quantity for ${product.name}`)
+    }
+    if (splitRoutes && isRouteProduct(product) && personCount > 1) {
+      quantity = quantity / personCount
     }
     return {
       productId: product.id,
@@ -532,6 +618,12 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
   if (Number.isNaN(expenseTotal) || expenseTotal < 0) throw new Error('Expenses cannot be negative')
   const net = total - expenseTotal
 
+  const routeProduct = products.find((product) => isRouteProduct(product))
+  const routeCount = status === 'absent' ? 0 : Number(quantities?.[routeProduct?.id] ?? 0)
+  if (routeCount > 0 && personCount > 1 && companionIds.length !== personCount - 1) {
+    throw new Error(`Select ${personCount - 1} person(s) who went on the other route`)
+  }
+
   return {
     id: id || crypto.randomUUID(),
     employeeId,
@@ -541,16 +633,18 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
     expenses: expenseTotal,
     net,
     attendance: status,
+    routePersonId: companionIds.join(','),
+    routeCount,
+    routePersonCount: personCount,
     recordedBy,
     recordedAt: recordedAt || new Date().toISOString(),
   }
 }
 
-export async function recordSale(input) {
-  const record = await buildSaleRecord(input)
+async function insertSaleRows(record) {
   await batch([
     {
-      sql: 'INSERT INTO sales (id, employee_id, date, total, expenses, net, attendance, recorded_by, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      sql: 'INSERT INTO sales (id, employee_id, date, total, expenses, net, attendance, recorded_by, recorded_at, route_person_id, route_count, route_person_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       args: [
         record.id,
         record.employeeId,
@@ -561,6 +655,9 @@ export async function recordSale(input) {
         record.attendance,
         record.recordedBy,
         record.recordedAt,
+        record.routePersonId || null,
+        record.routeCount ?? 0,
+        record.routePersonCount ?? 1,
       ],
     },
     ...record.lines.map((line) => ({
@@ -568,6 +665,108 @@ export async function recordSale(input) {
       args: [record.id, line.productId, line.quantity, line.rate, line.amount],
     })),
   ])
+}
+
+async function adjustEmployeeRouteQty(employeeId, date, productId, delta, recordedBy) {
+  if (!delta) return
+  const sale = await get('SELECT * FROM sales WHERE employee_id = ? AND date = ?', [employeeId, date])
+  const products = await listProducts()
+  if (!sale) {
+    if (delta <= 0) return
+    const quantities = Object.fromEntries(products.map((product) => [product.id, product.id === productId ? delta : 0]))
+    const record = await buildSaleRecord({
+      employeeId,
+      date,
+      quantities,
+      expenses: 0,
+      attendance: 'full',
+      recordedBy: recordedBy || 'Route credit',
+      splitRoutes: false,
+    })
+    await insertSaleRows(record)
+    return
+  }
+
+  const lines = await all('SELECT product_id AS productId, quantity FROM sale_lines WHERE sale_id = ?', [sale.id])
+  const quantities = Object.fromEntries(
+    products.map((product) => {
+      const line = lines.find((item) => item.productId === product.id)
+      const current = Number(line?.quantity ?? 0)
+      if (product.id === productId) return [product.id, Math.max(0, current + delta)]
+      if (isAttendantProduct(product)) return [product.id, 0]
+      return [product.id, current]
+    }),
+  )
+  const record = await buildSaleRecord({
+    id: sale.id,
+    employeeId,
+    date,
+    quantities,
+    expenses: sale.expenses,
+    attendance: sale.attendance || 'full',
+    recordedBy: sale.recorded_by,
+    recordedAt: sale.recorded_at,
+    routePersonId: sale.route_person_id,
+    routePersonCount: sale.route_person_count || 1,
+    splitRoutes: false,
+  })
+  await batch([
+    { sql: 'DELETE FROM sale_lines WHERE sale_id = ?', args: [sale.id] },
+    {
+      sql: `UPDATE sales
+       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?
+       WHERE id = ?`,
+      args: [
+        record.date,
+        record.total,
+        record.expenses,
+        record.net,
+        record.attendance,
+        record.recordedBy,
+        sale.route_person_id || null,
+        sale.route_count ?? 0,
+        sale.route_person_count ?? 1,
+        sale.id,
+      ],
+    },
+    ...record.lines.map((line) => ({
+      sql: 'INSERT INTO sale_lines (sale_id, product_id, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)',
+      args: [sale.id, line.productId, line.quantity, line.rate, line.amount],
+    })),
+  ])
+}
+
+async function syncRouteCredit(record) {
+  const products = await listProducts()
+  const routeProduct = products.find((product) => isRouteProduct(product))
+  if (!routeProduct) return
+
+  const previous = await all('SELECT * FROM route_credits WHERE source_sale_id = ?', [record.id])
+  for (const old of previous) {
+    await adjustEmployeeRouteQty(old.target_employee_id, old.date, old.product_id, -old.quantity)
+  }
+  await exec('DELETE FROM route_credits WHERE source_sale_id = ?', [record.id])
+
+  const quantity = record.lines.find((line) => line.productId === routeProduct.id)?.quantity ?? 0
+  const targets = parsePersonIds(record.routePersonId)
+  if (!targets.length || quantity <= 0 || record.attendance === 'absent') return
+
+  for (const targetId of targets) {
+    if (targetId === record.employeeId) continue
+    const target = await getEmployee(targetId)
+    if (!target) throw new Error('Person who went was not found')
+    await adjustEmployeeRouteQty(targetId, record.date, routeProduct.id, quantity, record.recordedBy)
+    await exec(
+      'INSERT INTO route_credits (source_sale_id, target_employee_id, date, product_id, quantity) VALUES (?, ?, ?, ?, ?)',
+      [record.id, targetId, record.date, routeProduct.id, quantity],
+    )
+  }
+}
+
+export async function recordSale(input) {
+  const record = await buildSaleRecord(input)
+  await insertSaleRows(record)
+  if (!input.skipRouteSync) await syncRouteCredit(record)
   return record
 }
 
@@ -584,20 +783,44 @@ export async function updateSale(id, input) {
     { sql: 'DELETE FROM sale_lines WHERE sale_id = ?', args: [id] },
     {
       sql: `UPDATE sales
-       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?
+       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?
        WHERE id = ?`,
-      args: [record.date, record.total, record.expenses, record.net, record.attendance, record.recordedBy, id],
+      args: [
+        record.date,
+        record.total,
+        record.expenses,
+        record.net,
+        record.attendance,
+        record.recordedBy,
+        record.routePersonId || null,
+        record.routeCount ?? 0,
+        record.routePersonCount ?? 1,
+        id,
+      ],
     },
     ...record.lines.map((line) => ({
       sql: 'INSERT INTO sale_lines (sale_id, product_id, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)',
       args: [id, line.productId, line.quantity, line.rate, line.amount],
     })),
   ])
+  if (!input.skipRouteSync) await syncRouteCredit(record)
   return record
 }
 
 export async function deleteSale(id) {
+  const current = await get('SELECT * FROM sales WHERE id = ?', [id])
+  if (current) {
+    await syncRouteCredit({
+      id,
+      employeeId: current.employee_id,
+      date: current.date,
+      attendance: 'absent',
+      lines: [],
+      routePersonId: '',
+    })
+  }
   await batch([
+    { sql: 'DELETE FROM route_credits WHERE source_sale_id = ?', args: [id] },
     { sql: 'DELETE FROM sale_lines WHERE sale_id = ?', args: [id] },
     { sql: 'DELETE FROM sales WHERE id = ?', args: [id] },
   ])

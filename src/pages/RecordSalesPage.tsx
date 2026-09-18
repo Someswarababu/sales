@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { formatMoney } from '../format'
-import { getEmployee, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
+import { getEmployee, listEmployees, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
 import { currentMonthValue, monthLabel, previousMonthValue } from '../exportMonth'
@@ -21,7 +21,8 @@ const ATTENDANCE_LABEL: Record<Attendance, string> = {
   full: 'Full day',
 }
 
-const ROUTE_FRACTIONS = [0.5, 1, 1.5, 2, 2.5, 3]
+const ROUTE_COUNTS = [1, 2, 3, 4, 5]
+const PERSON_COUNTS = [1, 2, 3, 4, 5]
 
 function unitLabel(unit: string, quantity: number) {
   return `${quantity} ${unit}${quantity === 1 ? '' : 's'}`
@@ -36,6 +37,9 @@ export function RecordSalesPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [attendance, setAttendance] = useState<Attendance>('full')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
+  const [routePersonIds, setRoutePersonIds] = useState<string[]>([])
+  const [routePersonCount, setRoutePersonCount] = useState('1')
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [expenses, setExpenses] = useState('0')
   const [error, setError] = useState('')
   const [history, setHistory] = useState<SaleRecord[]>([])
@@ -65,12 +69,13 @@ export function RecordSalesPage() {
       return
     }
 
-    Promise.all([getEmployee(employeeId), listProducts(), listSales(employeeId)])
-      .then(([found, productList, sales]) => {
+    Promise.all([getEmployee(employeeId), listProducts(), listSales(employeeId), listEmployees()])
+      .then(([found, productList, sales, employeeList]) => {
         setEmployee(found)
         setProducts(productList)
         setQuantities(Object.fromEntries(productList.map((product) => [product.id, ''])))
         setHistory(sales)
+        setEmployees(employeeList)
       })
       .catch(() => setMissing(true))
       .finally(() => setLoading(false))
@@ -91,11 +96,13 @@ export function RecordSalesPage() {
     )
   }
 
+  const personCount = Math.max(1, Number(routePersonCount) || 1)
   const otherProducts = products.filter((product) => !isAttendanceProduct(product))
   const previewSales = otherProducts.reduce((sum, product) => {
     if (isLoadingProduct(product)) return sum
     const quantity = Number(quantities[product.id] || 0)
-    return sum + quantity * product.rate
+    const share = isRouteProduct(product) ? quantity / personCount : quantity
+    return sum + share * product.rate
   }, 0)
   const previewLoading = otherProducts.reduce((sum, product) => {
     if (!isLoadingProduct(product)) return sum
@@ -121,6 +128,8 @@ export function RecordSalesPage() {
       setQuantities((current) =>
         Object.fromEntries(Object.keys(current).map((id) => [id, ''])),
       )
+      setRoutePersonIds([])
+      setRoutePersonCount('1')
     }
   }
 
@@ -148,6 +157,8 @@ export function RecordSalesPage() {
       ),
       expenses: Number(expenses || 0),
       recordedBy: user?.name ?? 'Unknown',
+      routePersonId: absent ? '' : routePersonIds.filter(Boolean).join(','),
+      routePersonCount: absent ? 1 : Number(routePersonCount) || 1,
     }
     setSaving(true)
     try {
@@ -157,6 +168,8 @@ export function RecordSalesPage() {
         await recordSale(payload)
       }
       setQuantities(Object.fromEntries(products.map((product) => [product.id, ''])))
+      setRoutePersonIds([])
+      setRoutePersonCount('1')
       setExpenses('0')
       setAttendance('full')
       setEditingId(null)
@@ -185,10 +198,15 @@ export function RecordSalesPage() {
         products.map((product) => {
           const line = sale.lines.find((item) => item.productId === product.id)
           if (isAttendanceProduct(product) || sale.attendance === 'absent') return [product.id, '']
+          if (isRouteProduct(product)) {
+            return [product.id, sale.routeCount ? String(sale.routeCount) : line && line.quantity ? String(line.quantity) : '']
+          }
           return [product.id, line && line.quantity ? String(line.quantity) : '']
         }),
       ),
     )
+    setRoutePersonCount(String(sale.routePersonCount || 1))
+    setRoutePersonIds((sale.routePersonId ?? '').split(',').map((id) => id.trim()).filter(Boolean))
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -199,6 +217,8 @@ export function RecordSalesPage() {
     setExpenses('0')
     setDate(new Date().toISOString().slice(0, 10))
     setQuantities(Object.fromEntries(products.map((product) => [product.id, ''])))
+    setRoutePersonIds([])
+    setRoutePersonCount('1')
   }
 
   return (
@@ -249,6 +269,9 @@ export function RecordSalesPage() {
                       {isLoadingProduct(product) && showAmounts && (
                         <span className="muted"> · ₹1, not in overall total</span>
                       )}
+                      {isRouteProduct(product) && (
+                        <span className="muted"> · routes ÷ persons, then share with who went</span>
+                      )}
                     </td>
                     {showAmounts && (
                       <td data-label="Rate">
@@ -257,21 +280,89 @@ export function RecordSalesPage() {
                     )}
                     <td data-label="Quantity sold">
                       {isRouteProduct(product) ? (
-                        <select
-                          value={quantities[product.id] ?? ''}
-                          disabled={absent || fieldsLocked || actionBusy}
-                          onChange={(e) =>
-                            setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
-                          }
-                        >
-                          <option value="">No {product.unit}</option>
-                          {ROUTE_FRACTIONS.map((fraction) => (
-                            <option key={fraction} value={fraction}>
-                              {fraction} {product.unit}
-                              {showAmounts ? ` — ${formatMoney(fraction * product.rate)}` : ''}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="route-fields">
+                          <select
+                            value={quantities[product.id] ?? ''}
+                            disabled={absent || fieldsLocked || actionBusy}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              setQuantities((current) => ({ ...current, [product.id]: value }))
+                              if (!Number(value || 0)) {
+                                setRoutePersonIds([])
+                                setRoutePersonCount('1')
+                              }
+                            }}
+                          >
+                            <option value="">No. of routes</option>
+                            {ROUTE_COUNTS.map((count) => (
+                              <option key={count} value={count}>
+                                {count}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="muted">routes</span>
+                          <select
+                            value={routePersonCount}
+                            disabled={absent || fieldsLocked || actionBusy || !Number(quantities[product.id] || 0)}
+                            onChange={(e) => {
+                              const next = e.target.value
+                              setRoutePersonCount(next)
+                              const needed = Math.max(0, Number(next) - 1)
+                              setRoutePersonIds((current) => current.slice(0, needed))
+                            }}
+                          >
+                            {PERSON_COUNTS.map((count) => (
+                              <option key={count} value={count}>
+                                {count}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="muted">persons</span>
+                          {personCount > 1 && (
+                            <div className="route-people">
+                              {Array.from({ length: personCount - 1 }).map((_, slot) => (
+                                <select
+                                  key={slot}
+                                  value={routePersonIds[slot] ?? ''}
+                                  disabled={absent || fieldsLocked || actionBusy}
+                                  onChange={(e) => {
+                                    const value = e.target.value
+                                    setRoutePersonIds((current) => {
+                                      const next = Array.from(
+                                        { length: personCount - 1 },
+                                        (_, index) => current[index] ?? '',
+                                      )
+                                      next[slot] = value
+                                      return next
+                                    })
+                                  }}
+                                >
+                                  <option value="">Went with #{slot + 2}</option>
+                                  {employees
+                                    .filter(
+                                      (item) =>
+                                        item.id !== employeeId &&
+                                        (!routePersonIds.includes(item.id) || routePersonIds[slot] === item.id),
+                                    )
+                                    .map((item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {item.name}
+                                      </option>
+                                    ))}
+                                </select>
+                              ))}
+                            </div>
+                          )}
+                          {showAmounts && Number(quantities[product.id] || 0) > 0 && (
+                            <span className="muted route-share">
+                              {personCount > 1
+                                ? `Each of ${personCount}: ${formatMoney(
+                                    (Number(quantities[product.id] || 0) / personCount) * product.rate,
+                                  )}`
+                                : formatMoney(Number(quantities[product.id] || 0) * product.rate)}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <input
                           type="number"
@@ -287,7 +378,13 @@ export function RecordSalesPage() {
                       )}
                     </td>
                     {showAmounts && (
-                      <td data-label="Amount">{formatMoney(absent ? 0 : quantity * product.rate)}</td>
+                      <td data-label="Amount">
+                        {formatMoney(
+                          absent
+                            ? 0
+                            : (isRouteProduct(product) ? quantity / personCount : quantity) * product.rate,
+                        )}
+                      </td>
                     )}
                   </tr>
                 )
@@ -460,7 +557,15 @@ export function RecordSalesPage() {
                                 <td>
                                   {attendant
                                     ? ATTENDANCE_LABEL[sale.attendance] ?? 'Full day'
-                                    : `${line.quantity} × ${formatMoney(line.rate)}`}
+                                    : isRouteProduct(product)
+                                      ? `${sale.routeCount || line.quantity} route${
+                                          (sale.routeCount || line.quantity) === 1 ? '' : 's'
+                                        } ÷ ${sale.routePersonCount || 1} person${
+                                          (sale.routePersonCount || 1) === 1 ? '' : 's'
+                                        } = ${line.quantity} × ${formatMoney(line.rate)}${
+                                          sale.routePersonName ? ` · went: ${sale.routePersonName}` : ''
+                                        }`
+                                      : `${line.quantity} × ${formatMoney(line.rate)}`}
                                 </td>
                                 <td>{formatMoney(line.amount)}</td>
                               </>
@@ -468,7 +573,11 @@ export function RecordSalesPage() {
                               <td>
                                 {attendant
                                   ? ATTENDANCE_LABEL[sale.attendance] ?? 'Full day'
-                                  : unitLabel(product?.unit ?? 'unit', line.quantity)}
+                                  : isRouteProduct(product)
+                                    ? `${unitLabel(product?.unit ?? 'unit', line.quantity)}${
+                                        sale.routePersonName ? ` · went: ${sale.routePersonName}` : ''
+                                      }`
+                                    : unitLabel(product?.unit ?? 'unit', line.quantity)}
                               </td>
                             )}
                           </tr>
