@@ -5,6 +5,8 @@ import { formatMoney } from '../format'
 import { getEmployee, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
+import { currentMonthValue, monthLabel, previousMonthValue } from '../exportMonth'
+import { isAttendanceProduct, isLoadingProduct, isRouteProduct, loadingAmount } from '../productFlags'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
 const ATTENDANCE_PAY: Record<Attendance, number> = {
@@ -20,14 +22,6 @@ const ATTENDANCE_LABEL: Record<Attendance, string> = {
 }
 
 const ROUTE_FRACTIONS = [0.5, 1, 1.5, 2, 2.5, 3]
-
-function isAttendanceProduct(product: Product) {
-  return product.id === 'attendants' || /attendant/i.test(product.name)
-}
-
-function isRouteProduct(product: Product) {
-  return product.id === 'other-routes' || /route/i.test(product.unit) || /route/i.test(product.name)
-}
 
 function unitLabel(unit: string, quantity: number) {
   return `${quantity} ${unit}${quantity === 1 ? '' : 's'}`
@@ -51,6 +45,7 @@ export function RecordSalesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [month, setMonth] = useState(currentMonthValue)
 
   const absent = attendance === 'absent'
   const canRecord = hasPermission(user, 'recordSales')
@@ -98,6 +93,12 @@ export function RecordSalesPage() {
 
   const otherProducts = products.filter((product) => !isAttendanceProduct(product))
   const previewSales = otherProducts.reduce((sum, product) => {
+    if (isLoadingProduct(product)) return sum
+    const quantity = Number(quantities[product.id] || 0)
+    return sum + quantity * product.rate
+  }, 0)
+  const previewLoading = otherProducts.reduce((sum, product) => {
+    if (!isLoadingProduct(product)) return sum
     const quantity = Number(quantities[product.id] || 0)
     return sum + quantity * product.rate
   }, 0)
@@ -105,13 +106,17 @@ export function RecordSalesPage() {
   const previewExpenses = Number(expenses || 0)
   const previewNet = previewTotal - previewExpenses
 
-  const allDaysSales = history.reduce((sum, sale) => sum + sale.total, 0)
-  const allDaysExpenses = history.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-  const allDaysNet = history.reduce(
+  const monthHistory = history.filter((sale) => sale.date.startsWith(month))
+  const monthLoading = monthHistory.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
+  const monthSales = monthHistory.reduce((sum, sale) => sum + sale.total, 0)
+  const monthExpenses = monthHistory.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
+  const monthNet = monthHistory.reduce(
     (sum, sale) => sum + (sale.net ?? sale.total - (sale.expenses ?? 0)),
     0,
   )
-  const daysPresent = history.filter((sale) => sale.attendance !== 'absent').length
+  const daysPresent = monthHistory.filter((sale) => sale.attendance !== 'absent').length
+  const thisMonth = currentMonthValue()
+  const lastMonth = previousMonthValue()
 
   function onAttendanceChange(value: Attendance) {
     setAttendance(value)
@@ -244,6 +249,9 @@ export function RecordSalesPage() {
                   <tr key={product.id}>
                     <td data-label="Product">
                       <strong>{product.name}</strong>
+                      {isLoadingProduct(product) && showAmounts && (
+                        <span className="muted"> · ₹1, not in overall total</span>
+                      )}
                     </td>
                     {showAmounts && (
                       <td data-label="Rate">
@@ -307,6 +315,12 @@ export function RecordSalesPage() {
               expenses: <strong>{formatMoney(previewExpenses)}</strong>
               {' = net '}
               <strong>{formatMoney(previewNet)}</strong>
+              {previewLoading > 0 && (
+                <>
+                  {' · Loading (separate): '}
+                  <strong>{formatMoney(absent ? 0 : previewLoading)}</strong>
+                </>
+              )}
             </p>
           )}
           {error && <p className="error">{error}</p>}
@@ -326,34 +340,62 @@ export function RecordSalesPage() {
         </form>
       </article>
       <article className="card">
-        <h3>All days total</h3>
+        <h3>{monthLabel(month)} total</h3>
         <p className="muted">
-          {employee.name} · {history.length} day{history.length === 1 ? '' : 's'} recorded ·{' '}
+          {employee.name} · {monthHistory.length} day{monthHistory.length === 1 ? '' : 's'} recorded ·{' '}
           {daysPresent} day{daysPresent === 1 ? '' : 's'} present
         </p>
+        <label>
+          Month
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
+        </label>
+        <div className="actions" style={{ margin: '0.9rem 0' }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={month === thisMonth}
+            onClick={() => setMonth(thisMonth)}
+          >
+            This month
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={month === lastMonth}
+            onClick={() => setMonth(lastMonth)}
+          >
+            Previous month
+          </button>
+        </div>
         {showAmounts && (
           <section className="grid-3">
             <div>
               <p className="muted">Sales</p>
-              <h2>{formatMoney(allDaysSales)}</h2>
+              <h2>{formatMoney(monthSales)}</h2>
             </div>
             <div>
               <p className="muted">Expenses</p>
-              <h2>{formatMoney(allDaysExpenses)}</h2>
+              <h2>{formatMoney(monthExpenses)}</h2>
             </div>
             <div>
               <p className="muted">Net earned</p>
-              <h2>{formatMoney(allDaysNet)}</h2>
+              <h2>{formatMoney(monthNet)}</h2>
             </div>
           </section>
         )}
+        {showAmounts && (
+          <div style={{ marginTop: '1rem' }}>
+            <p className="muted">Loading (separate, not in total)</p>
+            <h2>{formatMoney(monthLoading)}</h2>
+          </div>
+        )}
       </article>
       <article className="card">
-        <h3>Saved entries</h3>
-        {history.length === 0 ? (
-          <p className="muted">No sales recorded yet.</p>
+        <h3>Saved entries · {monthLabel(month)}</h3>
+        {monthHistory.length === 0 ? (
+          <p className="muted">No sales recorded in {monthLabel(month)}.</p>
         ) : (
-          history.map((sale) => (
+          monthHistory.map((sale) => (
             <div key={sale.id} className="sale-block">
               <div className="sale-head">
                 <strong>
@@ -364,6 +406,9 @@ export function RecordSalesPage() {
                   <span>
                     {formatMoney(sale.total)} − {formatMoney(sale.expenses ?? 0)} ={' '}
                     {formatMoney(sale.net ?? sale.total - (sale.expenses ?? 0))}
+                    {loadingAmount(sale, products) > 0
+                      ? ` · Loading ${formatMoney(loadingAmount(sale, products))}`
+                      : ''}
                   </span>
                 )}
                 {canEdit && (

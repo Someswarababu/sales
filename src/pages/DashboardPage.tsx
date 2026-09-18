@@ -12,6 +12,7 @@ import {
 } from '../exportMonth'
 import { listEmployees, listProducts, listSales } from '../services/salesStore'
 import { startLoading, stopLoading } from '../services/loading'
+import { isLoadingProduct, loadingAmount } from '../productFlags'
 import type { Employee, Product, SaleRecord } from '../types'
 
 export function DashboardPage() {
@@ -48,6 +49,7 @@ export function DashboardPage() {
   const grandTotal = sales.reduce((sum, sale) => sum + (sale.net ?? sale.total), 0)
   const grandSales = sales.reduce((sum, sale) => sum + sale.total, 0)
   const grandExpenses = sales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
+  const grandLoading = sales.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
 
   const productTotals = products.map((product) => {
     const quantity = sales.reduce((sum, sale) => {
@@ -112,7 +114,10 @@ export function DashboardPage() {
               <tbody>
                 {productTotals.map(({ product, quantity }) => (
                   <tr key={product.id}>
-                    <td data-label="Product">{product.name}</td>
+                    <td data-label="Product">
+                      {product.name}
+                      {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                    </td>
                     <td data-label="Sold">
                       {quantity} {product.unit}
                       {quantity === 1 ? '' : 's'}
@@ -146,6 +151,10 @@ export function DashboardPage() {
         <article className="card">
           <p className="muted">Net earned</p>
           <h2>{loading ? 'Loading…' : formatMoney(grandTotal)}</h2>
+        </article>
+        <article className="card">
+          <p className="muted">Loading (separate)</p>
+          <h2>{loading ? 'Loading…' : formatMoney(grandLoading)}</h2>
         </article>
       </section>
       <article className="card">
@@ -190,7 +199,10 @@ export function DashboardPage() {
             <tbody>
               {productTotals.map(({ product, quantity, amount }) => (
                 <tr key={product.id}>
-                  <td data-label="Product">{product.name}</td>
+                  <td data-label="Product">
+                    {product.name}
+                    {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                  </td>
                   <td data-label="Sold">
                     {quantity} {product.unit}
                     {quantity === 1 ? '' : 's'}

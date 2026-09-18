@@ -237,6 +237,7 @@ async function seedIfEmpty() {
       ['glass', 'Glass', 'case', 8],
       ['ppt', 'PPT', 'pack', 12],
       ['other-routes', 'Other routes', 'route', 15],
+      ['loading', 'Loading', 'unit', 1],
       ['attendants', 'Attendants', 'person', 20],
     ]
     await batch(
@@ -264,6 +265,18 @@ async function seedIfEmpty() {
       { sql: 'INSERT INTO sale_lines (sale_id, product_id, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)', args: [saleId, 'ppt', 2, 12, 24] },
       { sql: 'INSERT INTO sale_lines (sale_id, product_id, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)', args: [saleId, 'other-routes', 1, 15, 15] },
       { sql: 'INSERT INTO sale_lines (sale_id, product_id, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)', args: [saleId, 'attendants', 3, 20, 60] },
+    ])
+  }
+
+  const loadingProduct = await get(
+    "SELECT id FROM products WHERE id = 'loading' OR lower(name) = 'loading'",
+  )
+  if (!loadingProduct) {
+    await exec('INSERT INTO products (id, name, unit, rate) VALUES (?, ?, ?, ?)', [
+      'loading',
+      'Loading',
+      'unit',
+      1,
     ])
   }
 
@@ -326,8 +339,20 @@ export async function deleteProduct(id) {
     { sql: 'DELETE FROM sale_lines WHERE product_id = ?', args: [id] },
     {
       sql: `UPDATE sales SET
-         total = COALESCE((SELECT SUM(amount) FROM sale_lines WHERE sale_id = sales.id), 0),
-         net = COALESCE((SELECT SUM(amount) FROM sale_lines WHERE sale_id = sales.id), 0) - expenses`,
+         total = COALESCE((
+           SELECT SUM(sl.amount) FROM sale_lines sl
+           LEFT JOIN products p ON p.id = sl.product_id
+           WHERE sl.sale_id = sales.id
+             AND IFNULL(p.id, '') != 'loading'
+             AND IFNULL(lower(p.name), '') != 'loading'
+         ), 0),
+         net = COALESCE((
+           SELECT SUM(sl.amount) FROM sale_lines sl
+           LEFT JOIN products p ON p.id = sl.product_id
+           WHERE sl.sale_id = sales.id
+             AND IFNULL(p.id, '') != 'loading'
+             AND IFNULL(lower(p.name), '') != 'loading'
+         ), 0) - expenses`,
       args: [],
     },
     { sql: 'DELETE FROM sales WHERE id NOT IN (SELECT DISTINCT sale_id FROM sale_lines)', args: [] },
@@ -335,14 +360,26 @@ export async function deleteProduct(id) {
   ])
 }
 
-export async function listEmployees() {
+export async function listEmployees(month) {
+  const value = String(month ?? '').trim()
+  if (!/^\d{4}-\d{2}$/.test(value)) {
+    return all(
+      `SELECT e.id, e.name, e.route,
+              COALESCE(SUM(s.net), 0) AS totalEarned
+       FROM employees e
+       LEFT JOIN sales s ON s.employee_id = e.id
+       GROUP BY e.id
+       ORDER BY e.name`,
+    )
+  }
   return all(
     `SELECT e.id, e.name, e.route,
             COALESCE(SUM(s.net), 0) AS totalEarned
      FROM employees e
-     LEFT JOIN sales s ON s.employee_id = e.id
+     LEFT JOIN sales s ON s.employee_id = e.id AND substr(s.date, 1, 7) = ?
      GROUP BY e.id
      ORDER BY e.name`,
+    [value],
   )
 }
 
@@ -410,6 +447,14 @@ export async function listSales(employeeId) {
   return attachLines(sales)
 }
 
+function isLoadingProduct(product) {
+  return product.id === 'loading' || String(product.name).toLowerCase() === 'loading'
+}
+
+function isAttendantProduct(product) {
+  return product.id === 'attendants' || /attendant/i.test(product.name)
+}
+
 async function buildSaleRecord({ id, employeeId, date, quantities, expenses, attendance, recordedBy, recordedAt }) {
   const employee = await getEmployee(employeeId)
   if (!employee) throw new Error('Employee not found')
@@ -435,8 +480,7 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
 
   const products = await listProducts()
   const lines = products.map((product) => {
-    const isAttendant = product.id === 'attendants' || /attendant/i.test(product.name)
-    if (isAttendant) {
+    if (isAttendantProduct(product)) {
       return {
         productId: product.id,
         quantity: attendanceQty[status],
@@ -455,7 +499,10 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
       amount: quantity * product.rate,
     }
   })
-  const total = lines.reduce((sum, line) => sum + line.amount, 0)
+  const total = lines.reduce((sum, line) => {
+    const product = products.find((item) => item.id === line.productId)
+    return isLoadingProduct(product ?? { id: line.productId, name: '' }) ? sum : sum + line.amount
+  }, 0)
   const expenseTotal = Number(expenses ?? 0)
   if (Number.isNaN(expenseTotal) || expenseTotal < 0) throw new Error('Expenses cannot be negative')
   if (status !== 'absent' && total <= 0) {

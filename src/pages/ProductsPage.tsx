@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { addProduct, deleteProduct, listProducts, saveProductRates } from '../services/salesStore'
 import { PageLoader } from '../components/PageLoader'
+import { isLoadingProduct } from '../productFlags'
 import type { Product } from '../types'
 
 export function ProductsPage() {
@@ -76,7 +77,10 @@ export function ProductsPage() {
     <section className="stack">
       <section className="card">
         <h2>Product rates</h2>
-        <p className="muted">Each sale amount is quantity × rate. Day expenses are entered on the sales sheet, not per product.</p>
+        <p className="muted">
+          Each sale amount is quantity × rate. Day expenses are entered on the sales sheet, not per
+          product. Loading is ₹1 per unit and is kept out of overall sales and net earned.
+        </p>
         {loading ? (
           <PageLoader />
         ) : (
@@ -93,7 +97,10 @@ export function ProductsPage() {
               <tbody>
                 {products.map((product, index) => (
                   <tr key={product.id}>
-                    <td data-label="Product">{product.name}</td>
+                    <td data-label="Product">
+                      {product.name}
+                      {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                    </td>
                     <td data-label="Unit">{product.unit}</td>
                     <td data-label="Rupees per unit">
                       <input

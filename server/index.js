@@ -168,8 +168,9 @@ app.delete(
 
 app.get(
   '/api/employees',
-  requireAny(['viewDashboard', 'viewEmployees', 'addEmployees', 'removeEmployees'], async (_req, res) => {
-    res.json(await listEmployees())
+  requireAny(['viewDashboard', 'viewEmployees', 'addEmployees', 'removeEmployees'], async (req, res) => {
+    const month = typeof req.query.month === 'string' ? req.query.month : undefined
+    res.json(await listEmployees(month))
   }),
 )
 

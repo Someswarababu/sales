@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { hasPermission } from '../auth/permissions'
 import { formatMoney } from '../format'
 import { addEmployee, deleteEmployee, listEmployees } from '../services/salesStore'
+import { currentMonthValue, monthLabel } from '../exportMonth'
 import { PageLoader } from '../components/PageLoader'
 import type { Employee } from '../types'
 
@@ -21,8 +22,10 @@ export function EmployeesPage() {
   const [adding, setAdding] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
 
+  const month = currentMonthValue()
+
   async function refresh() {
-    setEmployees(await listEmployees())
+    setEmployees(await listEmployees(month))
   }
 
   useEffect(() => {
@@ -84,7 +87,7 @@ export function EmployeesPage() {
               <tr>
                 <th>Name</th>
                 <th>Route</th>
-                {showAmounts && <th>Net earned</th>}
+                {showAmounts && <th>Net earned · {monthLabel(month)}</th>}
                 <th></th>
               </tr>
             </thead>
@@ -96,7 +99,9 @@ export function EmployeesPage() {
                   </td>
                   <td data-label="Route">{employee.route}</td>
                   {showAmounts && (
-                    <td data-label="Net earned">{formatMoney(employee.totalEarned ?? 0)}</td>
+                    <td data-label={`Net earned · ${monthLabel(month)}`}>
+                      {formatMoney(employee.totalEarned ?? 0)}
+                    </td>
                   )}
                   <td className="actions">
                     <Link to={`/employees/${employee.id}/sales`}>

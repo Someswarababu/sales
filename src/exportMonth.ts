@@ -1,9 +1,15 @@
 import type { Employee, Product, SaleRecord } from './types'
+import { isLoadingProduct } from './productFlags'
 
 function csvCell(value: string | number) {
   const text = String(value)
   if (/[",\n]/.test(text)) return `"${text.replaceAll('"', '""')}"`
   return text
+}
+
+export function currentMonthValue() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 export function previousMonthValue() {
@@ -35,7 +41,11 @@ export function buildEmployeeMonthCsv(
       'Employee',
       'Route',
       'Sale entries',
-      ...products.map((product) => `${product.name} (${product.unit})`),
+      ...products.map((product) =>
+        isLoadingProduct(product)
+          ? `${product.name} (${product.unit}, not in total)`
+          : `${product.name} (${product.unit})`,
+      ),
       'Sales (INR)',
       'Expenses (INR)',
       'Net earned (INR)',

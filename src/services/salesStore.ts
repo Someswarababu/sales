@@ -87,8 +87,9 @@ export function deleteProduct(productId: string) {
   return api<void>(`/api/products/${productId}`, { method: 'DELETE' })
 }
 
-export function listEmployees() {
-  return api<Employee[]>('/api/employees')
+export function listEmployees(month?: string) {
+  const query = month ? `?month=${encodeURIComponent(month)}` : ''
+  return api<Employee[]>(`/api/employees${query}`)
 }
 
 export function getEmployee(id: string) {
