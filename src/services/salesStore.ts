@@ -121,6 +121,7 @@ export function recordSale(input: {
   recordedBy: string
   routePersonId?: string
   routePersonCount?: number
+  routeTrips?: { persons: number; ids: string[] }[]
 }) {
   return api<SaleRecord>('/api/sales', {
     method: 'POST',
@@ -139,6 +140,7 @@ export function updateSale(
     recordedBy: string
     routePersonId?: string
     routePersonCount?: number
+    routeTrips?: { persons: number; ids: string[] }[]
   },
 ) {
   return api<SaleRecord>(`/api/sales/${saleId}`, {

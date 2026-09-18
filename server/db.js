@@ -214,6 +214,9 @@ async function migrate() {
   if (!saleCols.includes('route_person_count')) {
     await exec('ALTER TABLE sales ADD COLUMN route_person_count INTEGER NOT NULL DEFAULT 1')
   }
+  if (!saleCols.includes('route_trips')) {
+    await exec('ALTER TABLE sales ADD COLUMN route_trips TEXT')
+  }
   await exec('UPDATE sales SET net = total - expenses')
 
   await exec(`
@@ -277,6 +280,7 @@ async function seedIfEmpty() {
       ['ppt', 'PPT', 'pack', 12],
       ['other-routes', 'Other routes', 'route', 15],
       ['loading', 'Loading', 'unit', 1],
+      ['balance', 'Balance', 'rupee', 1],
       ['attendants', 'Attendants', 'person', 20],
     ]
     await batch(
@@ -315,6 +319,18 @@ async function seedIfEmpty() {
       'loading',
       'Loading',
       'unit',
+      1,
+    ])
+  }
+
+  const balanceProduct = await get(
+    "SELECT id FROM products WHERE id = 'balance' OR lower(name) = 'balance'",
+  )
+  if (!balanceProduct) {
+    await exec('INSERT INTO products (id, name, unit, rate) VALUES (?, ?, ?, ?)', [
+      'balance',
+      'Balance',
+      'rupee',
       1,
     ])
   }
@@ -394,15 +410,15 @@ export async function deleteProduct(id) {
            SELECT SUM(sl.amount) FROM sale_lines sl
            LEFT JOIN products p ON p.id = sl.product_id
            WHERE sl.sale_id = sales.id
-             AND IFNULL(p.id, '') != 'loading'
-             AND IFNULL(lower(p.name), '') != 'loading'
+             AND IFNULL(p.id, '') NOT IN ('loading', 'balance')
+             AND IFNULL(lower(p.name), '') NOT IN ('loading', 'balance')
          ), 0),
          net = COALESCE((
            SELECT SUM(sl.amount) FROM sale_lines sl
            LEFT JOIN products p ON p.id = sl.product_id
            WHERE sl.sale_id = sales.id
-             AND IFNULL(p.id, '') != 'loading'
-             AND IFNULL(lower(p.name), '') != 'loading'
+             AND IFNULL(p.id, '') NOT IN ('loading', 'balance')
+             AND IFNULL(lower(p.name), '') NOT IN ('loading', 'balance')
          ), 0) - expenses`,
       args: [],
     },
@@ -413,24 +429,28 @@ export async function deleteProduct(id) {
 
 export async function listEmployees(month) {
   const value = String(month ?? '').trim()
-  if (!/^\d{4}-\d{2}$/.test(value)) {
-    return all(
-      `SELECT e.id, e.name, e.route,
-              COALESCE(SUM(s.net), 0) AS totalEarned
-       FROM employees e
-       LEFT JOIN sales s ON s.employee_id = e.id
-       GROUP BY e.id
-       ORDER BY e.name`,
-    )
-  }
+  const monthFilter = /^\d{4}-\d{2}$/.test(value) ? 'AND substr(sx.date, 1, 7) = ?' : ''
+  const saleJoin = /^\d{4}-\d{2}$/.test(value)
+    ? 'LEFT JOIN sales s ON s.employee_id = e.id AND substr(s.date, 1, 7) = ?'
+    : 'LEFT JOIN sales s ON s.employee_id = e.id'
+  const args = /^\d{4}-\d{2}$/.test(value) ? [value, value] : []
   return all(
     `SELECT e.id, e.name, e.route,
-            COALESCE(SUM(s.net), 0) AS totalEarned
+            COALESCE(SUM(s.net), 0) AS totalEarned,
+            COALESCE((
+              SELECT SUM(sl.amount)
+              FROM sale_lines sl
+              JOIN sales sx ON sx.id = sl.sale_id
+              LEFT JOIN products p ON p.id = sl.product_id
+              WHERE sx.employee_id = e.id
+                ${monthFilter}
+                AND (IFNULL(p.id, '') = 'balance' OR IFNULL(lower(p.name), '') = 'balance')
+            ), 0) AS balanceAmount
      FROM employees e
-     LEFT JOIN sales s ON s.employee_id = e.id AND substr(s.date, 1, 7) = ?
+     ${saleJoin}
      GROUP BY e.id
      ORDER BY e.name`,
-    [value],
+    args,
   )
 }
 
@@ -465,6 +485,23 @@ function parsePersonIds(value) {
   return [...new Set(String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean))]
 }
 
+function parseRouteTrips(value) {
+  let raw = value
+  if (typeof raw === 'string') {
+    if (!raw.trim()) return []
+    try {
+      raw = JSON.parse(raw)
+    } catch {
+      return []
+    }
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.map((trip) => ({
+    persons: Math.max(1, Math.round(Number(trip?.persons ?? trip?.personCount ?? 1) || 1)),
+    ids: parsePersonIds(Array.isArray(trip?.ids) ? trip.ids.join(',') : trip?.ids),
+  }))
+}
+
 async function attachLines(sales) {
   if (sales.length === 0) return []
   const placeholders = sales.map(() => '?').join(',')
@@ -482,7 +519,15 @@ async function attachLines(sales) {
       amount: line.amount,
     })
   }
-  const personIds = [...new Set(sales.flatMap((sale) => parsePersonIds(sale.route_person_id)))]
+  const tripsBySale = new Map(sales.map((sale) => [sale.id, parseRouteTrips(sale.route_trips)]))
+  const personIds = [
+    ...new Set(
+      sales.flatMap((sale) => [
+        ...parsePersonIds(sale.route_person_id),
+        ...(tripsBySale.get(sale.id) ?? []).flatMap((trip) => trip.ids),
+      ]),
+    ),
+  ]
   const nameById = new Map()
   if (personIds.length > 0) {
     const rows = await all(
@@ -491,6 +536,27 @@ async function attachLines(sales) {
     )
     for (const row of rows) nameById.set(row.id, row.name)
   }
+
+  const targetIds = [...new Set(sales.map((sale) => sale.employee_id))]
+  const creditRows = await all(
+    `SELECT rc.target_employee_id AS targetId, rc.date, rc.quantity, source.employee_id AS fromId, e.name AS fromName
+     FROM route_credits rc
+     JOIN sales source ON source.id = rc.source_sale_id
+     JOIN employees e ON e.id = source.employee_id
+     WHERE rc.target_employee_id IN (${targetIds.map(() => '?').join(',')})`,
+    targetIds,
+  )
+  const creditsByKey = new Map()
+  for (const row of creditRows) {
+    const key = `${row.targetId}|${row.date}`
+    if (!creditsByKey.has(key)) creditsByKey.set(key, [])
+    creditsByKey.get(key).push({
+      fromId: row.fromId,
+      fromName: row.fromName || row.fromId,
+      quantity: Number(row.quantity ?? 0),
+    })
+  }
+
   return sales.map((sale) => {
     const ids = parsePersonIds(sale.route_person_id)
     return {
@@ -505,6 +571,12 @@ async function attachLines(sales) {
       routePersonName: ids.map((id) => nameById.get(id) || id).join(', '),
       routeCount: Number(sale.route_count ?? 0),
       routePersonCount: Number(sale.route_person_count ?? 1),
+      routeTrips: (tripsBySale.get(sale.id) ?? []).map((trip) => ({
+        persons: trip.persons,
+        ids: trip.ids,
+        names: trip.ids.map((id) => nameById.get(id) || id),
+      })),
+      routeCredits: creditsByKey.get(`${sale.employee_id}|${sale.date}`) ?? [],
       recordedBy: sale.recorded_by,
       recordedAt: sale.recorded_at,
       lines: bySale.get(sale.id) ?? [],
@@ -530,6 +602,10 @@ function isLoadingProduct(product) {
   return product.id === 'loading' || String(product.name).toLowerCase() === 'loading'
 }
 
+function isBalanceProduct(product) {
+  return product.id === 'balance' || String(product.name).toLowerCase() === 'balance'
+}
+
 function isAttendantProduct(product) {
   return product.id === 'attendants' || /attendant/i.test(product.name)
 }
@@ -545,6 +621,7 @@ async function buildSaleRecord({
   recordedAt,
   routePersonId,
   routePersonCount,
+  routeTrips,
   splitRoutes = true,
 }) {
   const employee = await getEmployee(employeeId)
@@ -584,6 +661,38 @@ async function buildSaleRecord({
   const companionIds =
     personCount > 1 ? parsePersonIds(routePersonId).filter((id) => id !== employeeId) : []
 
+  const trips = status === 'absent' ? [] : parseRouteTrips(routeTrips)
+  const useTrips = splitRoutes && trips.length > 0
+
+  // Shares credited by other employees live in route_credits, so a user-driven save
+  // must add them back on top of this employee's own routes.
+  const creditRouteProduct = products.find((product) => isRouteProduct(product))
+  let creditedRouteQty = 0
+  if (splitRoutes && creditRouteProduct && status !== 'absent') {
+    const row = await get(
+      'SELECT COALESCE(SUM(quantity), 0) AS qty FROM route_credits WHERE target_employee_id = ? AND date = ? AND product_id = ?',
+      [employeeId, date, creditRouteProduct.id],
+    )
+    creditedRouteQty = Number(row?.qty ?? 0)
+  }
+  const tripShares = new Map()
+  let ownRouteQty = 0
+  if (useTrips) {
+    trips.forEach((trip, index) => {
+      const companions = trip.ids.filter((id) => id !== employeeId)
+      if (companions.length !== trip.persons - 1) {
+        throw new Error(`Select ${trip.persons - 1} person(s) who went on route ${index + 1}`)
+      }
+      const share = 1 / trip.persons
+      ownRouteQty += share
+      for (const id of companions) tripShares.set(id, (tripShares.get(id) ?? 0) + share)
+    })
+  }
+
+  const existingLines = id
+    ? await all('SELECT product_id AS productId, quantity FROM sale_lines WHERE sale_id = ?', [id])
+    : []
+
   const lines = products.map((product) => {
     if (isAttendantProduct(product)) {
       return {
@@ -594,23 +703,35 @@ async function buildSaleRecord({
       }
     }
     let quantity = status === 'absent' ? 0 : Number(quantities?.[product.id] ?? 0)
+    if (isBalanceProduct(product) && (!quantities || !Object.prototype.hasOwnProperty.call(quantities, product.id))) {
+      const previous = existingLines.find((line) => line.productId === product.id)
+      quantity = Number(previous?.quantity ?? 0)
+    }
     if (Number.isNaN(quantity) || quantity < 0) {
       throw new Error(`Invalid quantity for ${product.name}`)
     }
-    if (splitRoutes && isRouteProduct(product) && personCount > 1) {
-      quantity = quantity / personCount
+    if (isRouteProduct(product)) {
+      if (useTrips) {
+        quantity = ownRouteQty
+      } else if (splitRoutes && personCount > 1) {
+        quantity = quantity / personCount
+      }
+      quantity += creditedRouteQty
     }
+    const rate = isBalanceProduct(product) ? 1 : product.rate
     return {
       productId: product.id,
       quantity,
-      rate: product.rate,
-      amount: quantity * product.rate,
+      rate,
+      amount: quantity * rate,
     }
   })
   const productSales = lines.reduce((sum, line) => {
     const product = products.find((item) => item.id === line.productId)
-    if (isLoadingProduct(product ?? { id: line.productId, name: '' })) return sum
-    if (isAttendantProduct(product ?? { id: line.productId, name: '' })) return sum
+    const item = product ?? { id: line.productId, name: '' }
+    if (isLoadingProduct(item)) return sum
+    if (isBalanceProduct(item)) return sum
+    if (isAttendantProduct(item)) return sum
     return sum + line.amount
   }, 0)
   const total = productSales + attendancePay[status]
@@ -619,10 +740,24 @@ async function buildSaleRecord({
   const net = total - expenseTotal
 
   const routeProduct = products.find((product) => isRouteProduct(product))
-  const routeCount = status === 'absent' ? 0 : Number(quantities?.[routeProduct?.id] ?? 0)
-  if (routeCount > 0 && personCount > 1 && companionIds.length !== personCount - 1) {
+  const routeCount = useTrips
+    ? trips.length
+    : status === 'absent'
+      ? 0
+      : Number(quantities?.[routeProduct?.id] ?? 0)
+  if (!useTrips && routeCount > 0 && personCount > 1 && companionIds.length !== personCount - 1) {
     throw new Error(`Select ${personCount - 1} person(s) who went on the other route`)
   }
+
+  const storedTrips = splitRoutes
+    ? trips.length
+      ? JSON.stringify(trips)
+      : null
+    : typeof routeTrips === 'string'
+      ? routeTrips || null
+      : trips.length
+        ? JSON.stringify(trips)
+        : null
 
   return {
     id: id || crypto.randomUUID(),
@@ -633,9 +768,15 @@ async function buildSaleRecord({
     expenses: expenseTotal,
     net,
     attendance: status,
-    routePersonId: companionIds.join(','),
+    routePersonId: useTrips ? [...tripShares.keys()].join(',') : companionIds.join(','),
     routeCount,
-    routePersonCount: personCount,
+    routePersonCount: useTrips
+      ? trips.reduce((max, trip) => Math.max(max, trip.persons), 1)
+      : personCount,
+    routeTrips: storedTrips,
+    routeShares: useTrips
+      ? [...tripShares.entries()].map(([targetEmployeeId, quantity]) => ({ targetEmployeeId, quantity }))
+      : null,
     recordedBy,
     recordedAt: recordedAt || new Date().toISOString(),
   }
@@ -644,7 +785,7 @@ async function buildSaleRecord({
 async function insertSaleRows(record) {
   await batch([
     {
-      sql: 'INSERT INTO sales (id, employee_id, date, total, expenses, net, attendance, recorded_by, recorded_at, route_person_id, route_count, route_person_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      sql: 'INSERT INTO sales (id, employee_id, date, total, expenses, net, attendance, recorded_by, recorded_at, route_person_id, route_count, route_person_count, route_trips) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       args: [
         record.id,
         record.employeeId,
@@ -658,6 +799,7 @@ async function insertSaleRows(record) {
         record.routePersonId || null,
         record.routeCount ?? 0,
         record.routePersonCount ?? 1,
+        record.routeTrips ?? null,
       ],
     },
     ...record.lines.map((line) => ({
@@ -708,13 +850,14 @@ async function adjustEmployeeRouteQty(employeeId, date, productId, delta, record
     recordedAt: sale.recorded_at,
     routePersonId: sale.route_person_id,
     routePersonCount: sale.route_person_count || 1,
+    routeTrips: sale.route_trips,
     splitRoutes: false,
   })
   await batch([
     { sql: 'DELETE FROM sale_lines WHERE sale_id = ?', args: [sale.id] },
     {
       sql: `UPDATE sales
-       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?
+       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?, route_trips = ?
        WHERE id = ?`,
       args: [
         record.date,
@@ -726,6 +869,7 @@ async function adjustEmployeeRouteQty(employeeId, date, productId, delta, record
         sale.route_person_id || null,
         sale.route_count ?? 0,
         sale.route_person_count ?? 1,
+        sale.route_trips ?? null,
         sale.id,
       ],
     },
@@ -748,17 +892,20 @@ async function syncRouteCredit(record) {
   await exec('DELETE FROM route_credits WHERE source_sale_id = ?', [record.id])
 
   const quantity = record.lines.find((line) => line.productId === routeProduct.id)?.quantity ?? 0
-  const targets = parsePersonIds(record.routePersonId)
-  if (!targets.length || quantity <= 0 || record.attendance === 'absent') return
+  const shares =
+    Array.isArray(record.routeShares) && record.routeShares.length > 0
+      ? record.routeShares
+      : parsePersonIds(record.routePersonId).map((targetEmployeeId) => ({ targetEmployeeId, quantity }))
+  if (!shares.length || record.attendance === 'absent') return
 
-  for (const targetId of targets) {
-    if (targetId === record.employeeId) continue
-    const target = await getEmployee(targetId)
+  for (const { targetEmployeeId, quantity: share } of shares) {
+    if (targetEmployeeId === record.employeeId || !(share > 0)) continue
+    const target = await getEmployee(targetEmployeeId)
     if (!target) throw new Error('Person who went was not found')
-    await adjustEmployeeRouteQty(targetId, record.date, routeProduct.id, quantity, record.recordedBy)
+    await adjustEmployeeRouteQty(targetEmployeeId, record.date, routeProduct.id, share, record.recordedBy)
     await exec(
       'INSERT INTO route_credits (source_sale_id, target_employee_id, date, product_id, quantity) VALUES (?, ?, ?, ?, ?)',
-      [record.id, targetId, record.date, routeProduct.id, quantity],
+      [record.id, targetEmployeeId, record.date, routeProduct.id, share],
     )
   }
 }
@@ -783,7 +930,7 @@ export async function updateSale(id, input) {
     { sql: 'DELETE FROM sale_lines WHERE sale_id = ?', args: [id] },
     {
       sql: `UPDATE sales
-       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?
+       SET date = ?, total = ?, expenses = ?, net = ?, attendance = ?, recorded_by = ?, route_person_id = ?, route_count = ?, route_person_count = ?, route_trips = ?
        WHERE id = ?`,
       args: [
         record.date,
@@ -795,6 +942,7 @@ export async function updateSale(id, input) {
         record.routePersonId || null,
         record.routeCount ?? 0,
         record.routePersonCount ?? 1,
+        record.routeTrips ?? null,
         id,
       ],
     },

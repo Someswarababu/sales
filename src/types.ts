@@ -26,6 +26,7 @@ export type Employee = {
   name: string
   route: string
   totalEarned?: number
+  balanceAmount?: number
 }
 
 export type SaleLine = {
@@ -33,6 +34,18 @@ export type SaleLine = {
   quantity: number
   rate: number
   amount: number
+}
+
+export type RouteTrip = {
+  persons: number
+  ids: string[]
+  names?: string[]
+}
+
+export type RouteCredit = {
+  fromId: string
+  fromName: string
+  quantity: number
 }
 
 export type SaleRecord = {
@@ -48,6 +61,8 @@ export type SaleRecord = {
   routePersonName?: string
   routeCount?: number
   routePersonCount?: number
+  routeTrips?: RouteTrip[]
+  routeCredits?: RouteCredit[]
   recordedBy: string
   recordedAt: string
 }

@@ -100,7 +100,10 @@ export function EmployeesPage() {
                   <td data-label="Route">{employee.route}</td>
                   {showAmounts && (
                     <td data-label={`Net earned · ${monthLabel(month)}`}>
-                      {formatMoney(employee.totalEarned ?? 0)}
+                      {formatMoney(
+                        (employee.totalEarned ?? 0) -
+                          (user?.role === 'admin' ? employee.balanceAmount ?? 0 : 0),
+                      )}
                     </td>
                   )}
                   <td className="actions">

@@ -1,5 +1,5 @@
 import type { Employee, Product, SaleRecord } from './types'
-import { isLoadingProduct, saleOverallNet, saleOverallTotal } from './productFlags'
+import { isBalanceProduct, isLoadingProduct, monthOverallNet, saleOverallTotal } from './productFlags'
 
 function csvCell(value: string | number) {
   const text = String(value)
@@ -30,6 +30,7 @@ export function buildEmployeeMonthCsv(
   employees: Employee[],
   products: Product[],
   sales: SaleRecord[],
+  deductMonthBalance = false,
 ) {
   const monthSales = sales.filter((sale) => sale.date.startsWith(month))
   const lines: string[] = []
@@ -44,7 +45,9 @@ export function buildEmployeeMonthCsv(
       ...products.map((product) =>
         isLoadingProduct(product)
           ? `${product.name} (${product.unit}, not in total)`
-          : `${product.name} (${product.unit})`,
+          : isBalanceProduct(product)
+            ? `${product.name} (${product.unit}, deducted from net)`
+            : `${product.name} (${product.unit})`,
       ),
       'Sales (INR)',
       'Expenses (INR)',
@@ -62,7 +65,7 @@ export function buildEmployeeMonthCsv(
     )
     const total = employeeSales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
     const expenses = employeeSales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-    const net = employeeSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
+    const net = monthOverallNet(employeeSales, products, deductMonthBalance)
     lines.push(
       [
         csvCell(employee.name),
@@ -84,7 +87,7 @@ export function buildEmployeeMonthCsv(
   )
   const grandTotal = monthSales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
   const grandExpenses = monthSales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-  const grandNet = monthSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
+  const grandNet = monthOverallNet(monthSales, products, deductMonthBalance)
   lines.push(
     ['All employees', '', monthSales.length, ...grandQuantities, grandTotal, grandExpenses, grandNet].join(
       ',',
@@ -96,7 +99,10 @@ export function buildEmployeeMonthCsv(
   lines.push('Date,Employee,Route,Product,Quantity,Unit,Rate,Amount,Day expenses,Day net,Recorded by')
   for (const sale of [...monthSales].sort((a, b) => a.date.localeCompare(b.date))) {
     const employee = employees.find((item) => item.id === sale.employeeId)
-    const productLines = sale.lines.filter((item) => item.quantity > 0)
+    const productLines = sale.lines.filter((item) => item.quantity > 0).filter((item) => {
+      const product = products.find((row) => row.id === item.productId)
+      return deductMonthBalance || !isBalanceProduct(product, item.productId)
+    })
     productLines.forEach((line, index) => {
       const product = products.find((item) => item.id === line.productId)
       lines.push(
@@ -110,7 +116,7 @@ export function buildEmployeeMonthCsv(
           line.rate,
           line.amount,
           index === 0 ? (sale.expenses ?? 0) : '',
-          index === 0 ? (sale.net ?? sale.total - (sale.expenses ?? 0)) : '',
+          index === 0 ? saleOverallTotal(sale, products) - (sale.expenses ?? 0) : '',
           csvCell(sale.recordedBy),
         ].join(','),
       )

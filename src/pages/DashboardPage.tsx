@@ -12,7 +12,7 @@ import {
 } from '../exportMonth'
 import { listEmployees, listProducts, listSales } from '../services/salesStore'
 import { startLoading, stopLoading } from '../services/loading'
-import { isLoadingProduct, loadingAmount, saleOverallNet, saleOverallTotal } from '../productFlags'
+import { isBalanceProduct, isLoadingProduct, balanceAmount, loadingAmount, monthOverallNet, saleOverallTotal } from '../productFlags'
 import type { Employee, Product, SaleRecord } from '../types'
 
 export function DashboardPage() {
@@ -27,6 +27,7 @@ export function DashboardPage() {
 
   const canSeeDashboard = hasPermission(user, 'viewDashboard')
   const showAmounts = hasPermission(user, 'viewAmounts')
+  const canSeeBalance = user?.role === 'admin'
   const canExport = hasPermission(user, 'exportReports')
 
   useEffect(() => {
@@ -45,13 +46,15 @@ export function DashboardPage() {
   }, [canSeeDashboard])
 
   const monthSales = sales.filter((sale) => sale.date.startsWith(month))
-  const monthTotal = monthSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
-  const grandTotal = sales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
+  const monthTotal = monthOverallNet(monthSales, products, canSeeBalance)
+  const grandTotal = monthOverallNet(sales, products, canSeeBalance)
   const grandSales = sales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
   const grandExpenses = sales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
   const grandLoading = sales.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
+  const grandBalance = sales.reduce((sum, sale) => sum + balanceAmount(sale, products), 0)
 
-  const productTotals = products.map((product) => {
+  const visibleProducts = products.filter((product) => canSeeBalance || !isBalanceProduct(product))
+  const productTotals = visibleProducts.map((product) => {
     const quantity = sales.reduce((sum, sale) => {
       const line = sale.lines.find((item) => item.productId === product.id)
       return sum + (line?.quantity ?? 0)
@@ -68,7 +71,7 @@ export function DashboardPage() {
     setExporting(true)
     startLoading('Exporting…')
     try {
-      const csv = buildEmployeeMonthCsv(month, employees, products, sales)
+      const csv = buildEmployeeMonthCsv(month, employees, visibleProducts, sales, canSeeBalance)
       downloadCsv(`employee-sales-${month}.csv`, csv)
     } finally {
       stopLoading()
@@ -117,6 +120,7 @@ export function DashboardPage() {
                     <td data-label="Product">
                       {product.name}
                       {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                      {isBalanceProduct(product) ? ' (admin, subtracted once from the month)' : ''}
                     </td>
                     <td data-label="Sold">
                       {quantity} {product.unit}
@@ -156,6 +160,12 @@ export function DashboardPage() {
           <p className="muted">Loading (separate)</p>
           <h2>{loading ? 'Loading…' : formatMoney(grandLoading)}</h2>
         </article>
+        {canSeeBalance && (
+          <article className="card">
+            <p className="muted">Balance deducted (month)</p>
+            <h2>{loading ? 'Loading…' : formatMoney(grandBalance)}</h2>
+          </article>
+        )}
       </section>
       <article className="card">
         <h3>Monthly employee export</h3>
@@ -184,7 +194,9 @@ export function DashboardPage() {
       </article>
       <article className="card">
         <h3>Product totals</h3>
-        <p className="muted">Product totals are sales only. Day expenses are subtracted once from the overall total.</p>
+        <p className="muted">
+          Product totals are sales only. Day expenses are subtracted from each day. Balance is subtracted once from the month, and only admins see it.
+        </p>
         {loading ? (
           <PageLoader />
         ) : (
@@ -202,6 +214,7 @@ export function DashboardPage() {
                   <td data-label="Product">
                     {product.name}
                     {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                    {isBalanceProduct(product) ? ' (admin, subtracted once from the month)' : ''}
                   </td>
                   <td data-label="Sold">
                     {quantity} {product.unit}

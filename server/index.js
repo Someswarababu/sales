@@ -136,8 +136,15 @@ app.get(
   '/api/products',
   requireAny(
     ['viewDashboard', 'viewEmployees', 'recordSales', 'manageRates'],
-    async (_req, res) => {
-      res.json(await listProducts())
+    async (req, res) => {
+      const products = await listProducts()
+      res.json(
+        req.user.role === 'admin'
+          ? products
+          : products.filter(
+              (product) => product.id !== 'balance' && String(product.name).toLowerCase() !== 'balance',
+            ),
+      )
     },
   ),
 )
@@ -147,7 +154,14 @@ app.put(
   requirePerm('manageRates', async (req, res) => {
     if (!Array.isArray(req.body)) throw new Error('Products list is required')
     await saveProductRates(req.body)
-    res.json(await listProducts())
+    const products = await listProducts()
+    res.json(
+      req.user.role === 'admin'
+        ? products
+        : products.filter(
+            (product) => product.id !== 'balance' && String(product.name).toLowerCase() !== 'balance',
+          ),
+    )
   }),
 )
 

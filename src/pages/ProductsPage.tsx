@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { addProduct, deleteProduct, listProducts, saveProductRates } from '../services/salesStore'
 import { PageLoader } from '../components/PageLoader'
-import { isLoadingProduct } from '../productFlags'
+import { isBalanceProduct, isLoadingProduct } from '../productFlags'
 import type { Product } from '../types'
 
 export function ProductsPage() {
@@ -79,7 +79,8 @@ export function ProductsPage() {
         <h2>Product rates</h2>
         <p className="muted">
           Each sale amount is quantity × rate. Day expenses are entered on the sales sheet, not per
-          product. Loading is ₹1 per unit and is kept out of overall sales and net earned.
+          product. Loading is ₹1 per unit and is kept out of overall sales and net earned. Balance is
+          admin-only: enter an amount and it is subtracted once from that month’s net earned.
         </p>
         {loading ? (
           <PageLoader />
@@ -100,6 +101,7 @@ export function ProductsPage() {
                     <td data-label="Product">
                       {product.name}
                       {isLoadingProduct(product) ? ' (not in overall total)' : ''}
+                      {isBalanceProduct(product) ? ' (admin, subtracted once from the month)' : ''}
                     </td>
                     <td data-label="Unit">{product.unit}</td>
                     <td data-label="Rupees per unit">
