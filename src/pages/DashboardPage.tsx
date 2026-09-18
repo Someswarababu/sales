@@ -12,7 +12,7 @@ import {
 } from '../exportMonth'
 import { listEmployees, listProducts, listSales } from '../services/salesStore'
 import { startLoading, stopLoading } from '../services/loading'
-import { isLoadingProduct, loadingAmount } from '../productFlags'
+import { isLoadingProduct, loadingAmount, saleOverallNet, saleOverallTotal } from '../productFlags'
 import type { Employee, Product, SaleRecord } from '../types'
 
 export function DashboardPage() {
@@ -45,9 +45,9 @@ export function DashboardPage() {
   }, [canSeeDashboard])
 
   const monthSales = sales.filter((sale) => sale.date.startsWith(month))
-  const monthTotal = monthSales.reduce((sum, sale) => sum + (sale.net ?? sale.total), 0)
-  const grandTotal = sales.reduce((sum, sale) => sum + (sale.net ?? sale.total), 0)
-  const grandSales = sales.reduce((sum, sale) => sum + sale.total, 0)
+  const monthTotal = monthSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
+  const grandTotal = sales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
+  const grandSales = sales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
   const grandExpenses = sales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
   const grandLoading = sales.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
 

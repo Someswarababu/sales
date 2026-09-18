@@ -1,5 +1,5 @@
 import type { Employee, Product, SaleRecord } from './types'
-import { isLoadingProduct } from './productFlags'
+import { isLoadingProduct, saleOverallNet, saleOverallTotal } from './productFlags'
 
 function csvCell(value: string | number) {
   const text = String(value)
@@ -60,9 +60,9 @@ export function buildEmployeeMonthCsv(
         return sum + (line?.quantity ?? 0)
       }, 0),
     )
-    const total = employeeSales.reduce((sum, sale) => sum + sale.total, 0)
+    const total = employeeSales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
     const expenses = employeeSales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-    const net = employeeSales.reduce((sum, sale) => sum + (sale.net ?? sale.total - (sale.expenses ?? 0)), 0)
+    const net = employeeSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
     lines.push(
       [
         csvCell(employee.name),
@@ -82,12 +82,9 @@ export function buildEmployeeMonthCsv(
       return sum + (line?.quantity ?? 0)
     }, 0),
   )
-  const grandTotal = monthSales.reduce((sum, sale) => sum + sale.total, 0)
+  const grandTotal = monthSales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
   const grandExpenses = monthSales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-  const grandNet = monthSales.reduce(
-    (sum, sale) => sum + (sale.net ?? sale.total - (sale.expenses ?? 0)),
-    0,
-  )
+  const grandNet = monthSales.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
   lines.push(
     ['All employees', '', monthSales.length, ...grandQuantities, grandTotal, grandExpenses, grandNet].join(
       ',',

@@ -6,7 +6,7 @@ import { getEmployee, listProducts, listSales, recordSale, updateSale, deleteSal
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
 import { currentMonthValue, monthLabel, previousMonthValue } from '../exportMonth'
-import { isAttendanceProduct, isLoadingProduct, isRouteProduct, loadingAmount } from '../productFlags'
+import { isAttendanceProduct, isLoadingProduct, isRouteProduct, loadingAmount, saleOverallNet, saleOverallTotal } from '../productFlags'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
 const ATTENDANCE_PAY: Record<Attendance, number> = {
@@ -108,12 +108,9 @@ export function RecordSalesPage() {
 
   const monthHistory = history.filter((sale) => sale.date.startsWith(month))
   const monthLoading = monthHistory.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
-  const monthSales = monthHistory.reduce((sum, sale) => sum + sale.total, 0)
+  const monthSales = monthHistory.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
   const monthExpenses = monthHistory.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-  const monthNet = monthHistory.reduce(
-    (sum, sale) => sum + (sale.net ?? sale.total - (sale.expenses ?? 0)),
-    0,
-  )
+  const monthNet = monthHistory.reduce((sum, sale) => sum + saleOverallNet(sale, products), 0)
   const daysPresent = monthHistory.filter((sale) => sale.attendance !== 'absent').length
   const thisMonth = currentMonthValue()
   const lastMonth = previousMonthValue()
@@ -404,8 +401,8 @@ export function RecordSalesPage() {
                 </strong>
                 {showAmounts && (
                   <span>
-                    {formatMoney(sale.total)} − {formatMoney(sale.expenses ?? 0)} ={' '}
-                    {formatMoney(sale.net ?? sale.total - (sale.expenses ?? 0))}
+                    {formatMoney(saleOverallTotal(sale, products))} − {formatMoney(sale.expenses ?? 0)} ={' '}
+                    {formatMoney(saleOverallNet(sale, products))}
                     {loadingAmount(sale, products) > 0
                       ? ` · Loading ${formatMoney(loadingAmount(sale, products))}`
                       : ''}

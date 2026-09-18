@@ -280,6 +280,18 @@ async function seedIfEmpty() {
     ])
   }
 
+  const attendantProduct = await get(
+    "SELECT id FROM products WHERE id = 'attendants' OR lower(name) LIKE '%attendant%'",
+  )
+  if (!attendantProduct) {
+    await exec('INSERT INTO products (id, name, unit, rate) VALUES (?, ?, ?, ?)', [
+      'attendants',
+      'Attendants',
+      'person',
+      100,
+    ])
+  }
+
   const userCount = await get('SELECT COUNT(*) AS count FROM users')
   if (Number(userCount.count) === 0) {
     await batch([
@@ -478,7 +490,17 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
   const attendancePay = { absent: 0, half: 50, full: 100 }
   const attendanceQty = { absent: 0, half: 0.5, full: 1 }
 
-  const products = await listProducts()
+  let products = await listProducts()
+  if (!products.some((product) => isAttendantProduct(product))) {
+    await exec('INSERT INTO products (id, name, unit, rate) VALUES (?, ?, ?, ?)', [
+      'attendants',
+      'Attendants',
+      'person',
+      100,
+    ])
+    products = await listProducts()
+  }
+
   const lines = products.map((product) => {
     if (isAttendantProduct(product)) {
       return {
@@ -499,15 +521,15 @@ async function buildSaleRecord({ id, employeeId, date, quantities, expenses, att
       amount: quantity * product.rate,
     }
   })
-  const total = lines.reduce((sum, line) => {
+  const productSales = lines.reduce((sum, line) => {
     const product = products.find((item) => item.id === line.productId)
-    return isLoadingProduct(product ?? { id: line.productId, name: '' }) ? sum : sum + line.amount
+    if (isLoadingProduct(product ?? { id: line.productId, name: '' })) return sum
+    if (isAttendantProduct(product ?? { id: line.productId, name: '' })) return sum
+    return sum + line.amount
   }, 0)
+  const total = productSales + attendancePay[status]
   const expenseTotal = Number(expenses ?? 0)
   if (Number.isNaN(expenseTotal) || expenseTotal < 0) throw new Error('Expenses cannot be negative')
-  if (status !== 'absent' && total <= 0) {
-    throw new Error('Enter at least one sold quantity')
-  }
   const net = total - expenseTotal
 
   return {
