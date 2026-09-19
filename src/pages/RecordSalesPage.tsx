@@ -5,7 +5,7 @@ import { formatMoney } from '../format'
 import { getEmployee, listEmployees, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
-import { currentMonthValue, monthLabel, previousMonthValue } from '../exportMonth'
+import { currentMonthValue, datesInMonth, monthLabel, previousMonthValue } from '../exportMonth'
 import { isAttendanceProduct, isBalanceProduct, isLoadingProduct, isRouteProduct, balanceAmount, loadingAmount, monthOverallNet, saleOverallNet, saleOverallTotal } from '../productFlags'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
@@ -39,7 +39,6 @@ function creditedRoutes(sale: SaleRecord | null | undefined) {
 }
 
 function savedTrips(sale: SaleRecord, products: Product[]): RouteTripDraft[] {
-  if (sale.attendance === 'absent') return []
   if (sale.routeTrips?.length) {
     return sale.routeTrips.map((trip) => ({ persons: Math.max(1, trip.persons), ids: [...trip.ids] }))
   }
@@ -100,7 +99,6 @@ export function RecordSalesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [month, setMonth] = useState(currentMonthValue)
 
-  const absent = attendance === 'absent'
   const canRecord = hasPermission(user, 'recordSales')
   const canEdit = hasPermission(user, 'editSales')
   const canDelete = hasPermission(user, 'deleteSales')
@@ -147,7 +145,7 @@ export function RecordSalesPage() {
 
   const canSeeBalance = user?.role === 'admin'
   const editingSale = editingId ? history.find((sale) => sale.id === editingId) ?? null : null
-  const creditedShare = absent ? 0 : creditedRoutes(editingSale)
+  const creditedShare = creditedRoutes(editingSale)
   const routeShare = tripShare(routeTrips) + creditedShare
   const otherProducts = products.filter(
     (product) => !isAttendanceProduct(product) && (canSeeBalance || !isBalanceProduct(product)),
@@ -168,11 +166,12 @@ export function RecordSalesPage() {
     const quantity = Number(quantities[product.id] || 0)
     return sum + quantity
   }, 0)
-  const previewTotal = absent ? 0 : previewSales + ATTENDANCE_PAY[attendance]
+  const previewTotal = previewSales + ATTENDANCE_PAY[attendance]
   const previewExpenses = Number(expenses || 0)
   const previewNet = previewTotal - previewExpenses
 
   const monthHistory = history.filter((sale) => sale.date.startsWith(month))
+  const monthDays = datesInMonth(month)
   const monthLoading = monthHistory.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
   const monthBalance = monthHistory.reduce((sum, sale) => sum + balanceAmount(sale, products), 0)
   const monthSales = monthHistory.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
@@ -180,22 +179,12 @@ export function RecordSalesPage() {
   const liveMonthBalance =
     monthBalance -
     (editingSale && editingSale.date.startsWith(month) ? balanceAmount(editingSale, products) : 0) +
-    (canSeeBalance && !absent && date.startsWith(month) ? previewBalance : 0)
+    (canSeeBalance && date.startsWith(month) ? previewBalance : 0)
   const monthNet =
     monthOverallNet(monthHistory, products, false) - (canSeeBalance ? liveMonthBalance : 0)
   const daysPresent = monthHistory.filter((sale) => sale.attendance !== 'absent').length
   const thisMonth = currentMonthValue()
   const lastMonth = previousMonthValue()
-
-  function onAttendanceChange(value: Attendance) {
-    setAttendance(value)
-    if (value === 'absent') {
-      setQuantities((current) =>
-        Object.fromEntries(Object.keys(current).map((id) => [id, ''])),
-      )
-      setRouteTrips([])
-    }
-  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -216,14 +205,12 @@ export function RecordSalesPage() {
       quantities: Object.fromEntries(
         products.map((product) => [
           product.id,
-          absent || isAttendanceProduct(product) ? 0 : Number(quantities[product.id] || 0),
+          isAttendanceProduct(product) ? 0 : Number(quantities[product.id] || 0),
         ]),
       ),
       expenses: Number(expenses || 0),
       recordedBy: user?.name ?? 'Unknown',
-      routeTrips: absent
-        ? []
-        : routeTrips.map((trip) => ({ persons: trip.persons, ids: trip.ids.filter(Boolean) })),
+      routeTrips: routeTrips.map((trip) => ({ persons: trip.persons, ids: trip.ids.filter(Boolean) })),
     }
     const unfinished = payload.routeTrips.findIndex((trip) => trip.ids.length !== trip.persons - 1)
     if (unfinished >= 0) {
@@ -266,7 +253,7 @@ export function RecordSalesPage() {
       Object.fromEntries(
         products.map((product) => {
           const line = sale.lines.find((item) => item.productId === product.id)
-          if (isAttendanceProduct(product) || sale.attendance === 'absent') return [product.id, '']
+          if (isAttendanceProduct(product)) return [product.id, '']
           if (isRouteProduct(product)) {
             const own = savedTrips(sale, products).length
             return [product.id, own ? String(own) : '']
@@ -297,8 +284,8 @@ export function RecordSalesPage() {
         <p>{employee.route}</p>
         <p className="muted">
           {showAmounts
-            ? 'Attendants: full day ₹100, half day ₹50, absent ₹0. If absent, other products are locked. Expenses can still be entered. Absent days save with no sold quantity.'
-            : 'Choose full day, half day, or absent. If absent, other products are locked. Absent days are saved for that date.'}
+            ? 'Attendants: full day ₹100, half day ₹50, absent ₹0. Product quantities and routes can still be entered when absent.'
+            : 'Choose full day, half day, or absent. Product quantities and routes can still be entered when absent.'}
           {!canRecord && !canEdit ? ' This role can view the sheet but cannot save changes.' : ''}
         </p>
         <form onSubmit={onSubmit}>
@@ -310,7 +297,7 @@ export function RecordSalesPage() {
             Attendants
             <select
               value={attendance}
-              onChange={(e) => onAttendanceChange(e.target.value as Attendance)}
+              onChange={(e) => setAttendance(e.target.value as Attendance)}
               disabled={fieldsLocked || actionBusy}
             >
               <option value="full">{showAmounts ? 'Full day — ₹100' : 'Full day'}</option>
@@ -355,7 +342,7 @@ export function RecordSalesPage() {
                           <div className="route-row">
                             <select
                               value={routeTrips.length || ''}
-                              disabled={absent || fieldsLocked || actionBusy}
+                              disabled={fieldsLocked || actionBusy}
                               onChange={(e) => {
                                 const count = Number(e.target.value || 0)
                                 setQuantities((current) => ({
@@ -382,7 +369,7 @@ export function RecordSalesPage() {
                               <span className="route-tag">Route {tripIndex + 1}</span>
                               <select
                                 value={trip.persons}
-                                disabled={absent || fieldsLocked || actionBusy}
+                                disabled={fieldsLocked || actionBusy}
                                 onChange={(e) => {
                                   const persons = Math.max(1, Number(e.target.value) || 1)
                                   setRouteTrips((current) =>
@@ -405,7 +392,7 @@ export function RecordSalesPage() {
                                 <select
                                   key={slot}
                                   value={trip.ids[slot] ?? ''}
-                                  disabled={absent || fieldsLocked || actionBusy}
+                                  disabled={fieldsLocked || actionBusy}
                                   onChange={(e) => {
                                     const value = e.target.value
                                     setRouteTrips((current) =>
@@ -459,7 +446,7 @@ export function RecordSalesPage() {
                           step={1}
                           placeholder={isBalanceProduct(product) ? '₹0' : `0 ${product.unit}s`}
                           value={quantities[product.id] ?? ''}
-                          disabled={absent || fieldsLocked || actionBusy}
+                          disabled={fieldsLocked || actionBusy}
                           onChange={(e) =>
                             setQuantities((current) => ({ ...current, [product.id]: e.target.value }))
                           }
@@ -469,11 +456,9 @@ export function RecordSalesPage() {
                     {showAmounts && (
                       <td data-label="Amount">
                         {formatMoney(
-                          absent
-                            ? 0
-                            : isBalanceProduct(product)
-                              ? quantity
-                              : (isRouteProduct(product) ? routeShare : quantity) * product.rate,
+                          isBalanceProduct(product)
+                            ? quantity
+                            : (isRouteProduct(product) ? routeShare : quantity) * product.rate,
                         )}
                       </td>
                     )}
@@ -500,7 +485,7 @@ export function RecordSalesPage() {
               expenses: <strong>{formatMoney(previewExpenses)}</strong>
               {' = day net '}
               <strong>{formatMoney(previewNet)}</strong>
-              {canSeeBalance && previewBalance > 0 && !absent && (
+              {canSeeBalance && previewBalance > 0 && (
                 <>
                   {' · Balance '}
                   <strong>{formatMoney(previewBalance)}</strong>
@@ -510,7 +495,7 @@ export function RecordSalesPage() {
               {previewLoading > 0 && (
                 <>
                   {' · Loading (separate): '}
-                  <strong>{formatMoney(absent ? 0 : previewLoading)}</strong>
+                  <strong>{formatMoney(previewLoading)}</strong>
                 </>
               )}
             </p>
@@ -590,11 +575,23 @@ export function RecordSalesPage() {
       </article>
       <article className="card">
         <h3>Saved entries · {monthLabel(month)}</h3>
-        {monthHistory.length === 0 ? (
-          <p className="muted">No sales recorded in {monthLabel(month)}.</p>
+        {monthDays.length === 0 ? (
+          <p className="muted">No days to show in {monthLabel(month)}.</p>
         ) : (
-          monthHistory.map((sale) => (
-            <div key={sale.id} className="sale-block">
+          monthDays.map((date) => {
+            const sale = monthHistory.find((item) => item.date === date)
+            if (!sale) {
+              return (
+                <div key={date} className="sale-block">
+                  <div className="sale-head">
+                    <strong>{date} — Record not there</strong>
+                    <span className="muted">No entry saved for this day</span>
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div key={sale.id} className="sale-block">
               <div className="sale-head">
                 <strong>
                   {sale.date}
@@ -638,20 +635,7 @@ export function RecordSalesPage() {
               </div>
               <table>
                 <tbody>
-                  {sale.attendance === 'absent' ? (
-                    <tr>
-                      <td>Absent</td>
-                      {showAmounts ? (
-                        <>
-                          <td>No sold quantity</td>
-                          <td>{formatMoney(0)}</td>
-                        </>
-                      ) : (
-                        <td>No sold quantity</td>
-                      )}
-                    </tr>
-                  ) : (
-                    sale.lines
+                  {sale.lines
                       .filter((line) => line.quantity > 0 || line.amount > 0)
                       .filter((line) => {
                         const product = products.find((item) => item.id === line.productId)
@@ -703,8 +687,7 @@ export function RecordSalesPage() {
                             )}
                           </tr>
                         )
-                      })
-                  )}
+                      })}
                   {(sale.expenses ?? 0) > 0 && (
                     <tr>
                       <td>Day expenses</td>
@@ -721,7 +704,8 @@ export function RecordSalesPage() {
                 </tbody>
               </table>
             </div>
-          ))
+            )
+          })
         )}
       </article>
       {popup && (

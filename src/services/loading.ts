@@ -32,6 +32,7 @@ export function stopLoading() {
 export function loadingLabelFor(method: string, path: string) {
   if (path.includes('/login')) return 'Signing in…'
   if (path.includes('/logout')) return 'Signing out…'
+  if (path.includes('/change-password')) return 'Updating password…'
   if (method === 'GET') return 'Loading…'
   if (method === 'DELETE') return 'Removing…'
   return 'Saving…'

@@ -6,6 +6,7 @@ import { PageLoader } from '../components/PageLoader'
 import { formatMoney } from '../format'
 import {
   buildEmployeeMonthCsv,
+  currentMonthValue,
   downloadCsv,
   monthLabel,
   previousMonthValue,
@@ -23,12 +24,14 @@ export function DashboardPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
-  const [month, setMonth] = useState(previousMonthValue)
+  const [month, setMonth] = useState(currentMonthValue)
 
   const canSeeDashboard = hasPermission(user, 'viewDashboard')
   const showAmounts = hasPermission(user, 'viewAmounts')
   const canSeeBalance = user?.role === 'admin'
   const canExport = hasPermission(user, 'exportReports')
+  const thisMonth = currentMonthValue()
+  const lastMonth = previousMonthValue()
 
   useEffect(() => {
     if (!canSeeDashboard) {
@@ -47,19 +50,18 @@ export function DashboardPage() {
 
   const monthSales = sales.filter((sale) => sale.date.startsWith(month))
   const monthTotal = monthOverallNet(monthSales, products, canSeeBalance)
-  const grandTotal = monthOverallNet(sales, products, canSeeBalance)
-  const grandSales = sales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
-  const grandExpenses = sales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
-  const grandLoading = sales.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
-  const grandBalance = sales.reduce((sum, sale) => sum + balanceAmount(sale, products), 0)
+  const monthSalesAmount = monthSales.reduce((sum, sale) => sum + saleOverallTotal(sale, products), 0)
+  const monthExpenses = monthSales.reduce((sum, sale) => sum + (sale.expenses ?? 0), 0)
+  const monthLoading = monthSales.reduce((sum, sale) => sum + loadingAmount(sale, products), 0)
+  const monthBalance = monthSales.reduce((sum, sale) => sum + balanceAmount(sale, products), 0)
 
   const visibleProducts = products.filter((product) => canSeeBalance || !isBalanceProduct(product))
   const productTotals = visibleProducts.map((product) => {
-    const quantity = sales.reduce((sum, sale) => {
+    const quantity = monthSales.reduce((sum, sale) => {
       const line = sale.lines.find((item) => item.productId === product.id)
       return sum + (line?.quantity ?? 0)
     }, 0)
-    const amount = sales.reduce((sum, sale) => {
+    const amount = monthSales.reduce((sum, sale) => {
       const line = sale.lines.find((item) => item.productId === product.id)
       return sum + (line?.amount ?? 0)
     }, 0)
@@ -77,6 +79,40 @@ export function DashboardPage() {
       stopLoading()
       setExporting(false)
     }
+  }
+
+  function monthControls() {
+    return (
+      <article className="card">
+        <h3>{monthLabel(month)}</h3>
+        <p className="muted">
+          {monthSales.length} sale entr{monthSales.length === 1 ? 'y' : 'ies'} in this month. Choose
+          another month to see its sales, expenses, net earned, and loading.
+        </p>
+        <label>
+          Month
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
+        </label>
+        <div className="actions" style={{ margin: '0.9rem 0 0' }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={month === thisMonth}
+            onClick={() => setMonth(thisMonth)}
+          >
+            This month
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={month === lastMonth}
+            onClick={() => setMonth(lastMonth)}
+          >
+            Previous month
+          </button>
+        </div>
+      </article>
+    )
   }
 
   if (!canSeeDashboard) {
@@ -100,8 +136,9 @@ export function DashboardPage() {
           </p>
           {hasPermission(user, 'viewEmployees') && <Link to="/employees">Enter sales</Link>}
         </article>
+        {monthControls()}
         <article className="card">
-          <h3>Quantities sold</h3>
+          <h3>Quantities sold · {monthLabel(month)}</h3>
           {loading ? (
             <PageLoader />
           ) : error ? (
@@ -143,42 +180,39 @@ export function DashboardPage() {
           <p className="error">{error}</p>
         </article>
       )}
+      {monthControls()}
       <section className="grid-3">
         <article className="card">
-          <p className="muted">Sales</p>
-          <h2>{loading ? 'Loading…' : formatMoney(grandSales)}</h2>
+          <p className="muted">Sales · {monthLabel(month)}</p>
+          <h2>{loading ? 'Loading…' : formatMoney(monthSalesAmount)}</h2>
         </article>
         <article className="card">
-          <p className="muted">Expenses</p>
-          <h2>{loading ? 'Loading…' : formatMoney(grandExpenses)}</h2>
+          <p className="muted">Expenses · {monthLabel(month)}</p>
+          <h2>{loading ? 'Loading…' : formatMoney(monthExpenses)}</h2>
         </article>
         <article className="card">
-          <p className="muted">Net earned</p>
-          <h2>{loading ? 'Loading…' : formatMoney(grandTotal)}</h2>
+          <p className="muted">Net earned · {monthLabel(month)}</p>
+          <h2>{loading ? 'Loading…' : formatMoney(monthTotal)}</h2>
         </article>
         <article className="card">
-          <p className="muted">Loading (separate)</p>
-          <h2>{loading ? 'Loading…' : formatMoney(grandLoading)}</h2>
+          <p className="muted">Loading (separate) · {monthLabel(month)}</p>
+          <h2>{loading ? 'Loading…' : formatMoney(monthLoading)}</h2>
         </article>
         {canSeeBalance && (
           <article className="card">
-            <p className="muted">Balance deducted (month)</p>
-            <h2>{loading ? 'Loading…' : formatMoney(grandBalance)}</h2>
+            <p className="muted">Balance deducted · {monthLabel(month)}</p>
+            <h2>{loading ? 'Loading…' : formatMoney(monthBalance)}</h2>
           </article>
         )}
       </section>
       <article className="card">
         <h3>Monthly employee export</h3>
         <p className="muted">
-          At the start of each month, export the previous month’s overall employee sales. The month
-          picker defaults to {monthLabel(previousMonthValue())}.
+          Download {monthLabel(month)}. One employee at a time: every day of the month is a row.
+          Missed days are marked Record not there.
         </p>
         {canExport ? (
           <form className="form-grid" onSubmit={onExport}>
-            <label>
-              Month
-              <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} required />
-            </label>
             <div className="actions full">
               <button type="submit" disabled={loading || exporting}>
                 {exporting ? 'Exporting…' : `Export ${monthLabel(month)} CSV`}
@@ -193,7 +227,7 @@ export function DashboardPage() {
         )}
       </article>
       <article className="card">
-        <h3>Product totals</h3>
+        <h3>Product totals · {monthLabel(month)}</h3>
         <p className="muted">
           Product totals are sales only. Day expenses are subtracted from each day. Balance is subtracted once from the month, and only admins see it.
         </p>

@@ -48,6 +48,13 @@ export function getSession() {
   return api<SessionUser>('/api/me')
 }
 
+export function changePassword(currentPassword: string, newPassword: string) {
+  return api<void>('/api/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
 export type RolePermissionRow = {
   role: string
   permissions: PermissionKey[]

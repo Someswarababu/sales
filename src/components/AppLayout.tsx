@@ -36,13 +36,13 @@ export function AppLayout() {
           <span />
           <span />
         </button>
-        <strong>Employee Salary Portal</strong>
+        <strong>Salary Portal</strong>
         <ThemeToggle className="icon-only" />
       </header>
       <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />
       <aside className="sidebar">
         <div className="brand">
-          <strong>Employee Salary Portal</strong>
+          <strong>Salary Portal</strong>
           <span>
             {user?.role === 'admin'
               ? 'Admin · full access'
@@ -58,6 +58,7 @@ export function AppLayout() {
           {hasPermission(user, 'viewEmployees') && <NavLink to="/employees">Employees</NavLink>}
           {hasPermission(user, 'manageRates') && <NavLink to="/products">Product rates</NavLink>}
           {user?.role === 'admin' && <NavLink to="/access">Role access</NavLink>}
+          <NavLink to="/password">Change password</NavLink>
         </nav>
         <ThemeToggle className="ghost" />
         <button

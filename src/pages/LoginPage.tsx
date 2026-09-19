@@ -33,7 +33,7 @@ export function LoginPage() {
     <div className="login-page">
       <ThemeToggle className="secondary login-theme-toggle" />
       <form className="card login-card" onSubmit={onSubmit}>
-        <h1>Employee Salary Portal</h1>
+        <h1>Salary Portal</h1>
         <label>
           Username
           <input value={username} onChange={(e) => setUsername(e.target.value)} required disabled={busy} />

@@ -661,14 +661,14 @@ async function buildSaleRecord({
   const companionIds =
     personCount > 1 ? parsePersonIds(routePersonId).filter((id) => id !== employeeId) : []
 
-  const trips = status === 'absent' ? [] : parseRouteTrips(routeTrips)
+  const trips = parseRouteTrips(routeTrips)
   const useTrips = splitRoutes && trips.length > 0
 
   // Shares credited by other employees live in route_credits, so a user-driven save
   // must add them back on top of this employee's own routes.
   const creditRouteProduct = products.find((product) => isRouteProduct(product))
   let creditedRouteQty = 0
-  if (splitRoutes && creditRouteProduct && status !== 'absent') {
+  if (splitRoutes && creditRouteProduct) {
     const row = await get(
       'SELECT COALESCE(SUM(quantity), 0) AS qty FROM route_credits WHERE target_employee_id = ? AND date = ? AND product_id = ?',
       [employeeId, date, creditRouteProduct.id],
@@ -702,7 +702,7 @@ async function buildSaleRecord({
         amount: attendancePay[status],
       }
     }
-    let quantity = status === 'absent' ? 0 : Number(quantities?.[product.id] ?? 0)
+    let quantity = Number(quantities?.[product.id] ?? 0)
     if (isBalanceProduct(product) && (!quantities || !Object.prototype.hasOwnProperty.call(quantities, product.id))) {
       const previous = existingLines.find((line) => line.productId === product.id)
       quantity = Number(previous?.quantity ?? 0)
@@ -742,9 +742,7 @@ async function buildSaleRecord({
   const routeProduct = products.find((product) => isRouteProduct(product))
   const routeCount = useTrips
     ? trips.length
-    : status === 'absent'
-      ? 0
-      : Number(quantities?.[routeProduct?.id] ?? 0)
+    : Number(quantities?.[routeProduct?.id] ?? 0)
   if (!useTrips && routeCount > 0 && personCount > 1 && companionIds.length !== personCount - 1) {
     throw new Error(`Select ${personCount - 1} person(s) who went on the other route`)
   }
@@ -896,7 +894,7 @@ async function syncRouteCredit(record) {
     Array.isArray(record.routeShares) && record.routeShares.length > 0
       ? record.routeShares
       : parsePersonIds(record.routePersonId).map((targetEmployeeId) => ({ targetEmployeeId, quantity }))
-  if (!shares.length || record.attendance === 'absent') return
+  if (!shares.length) return
 
   for (const { targetEmployeeId, quantity: share } of shares) {
     if (targetEmployeeId === record.employeeId || !(share > 0)) continue
@@ -1027,6 +1025,28 @@ export async function logoutUser(token) {
   const value = String(token ?? '').trim()
   if (!value) return
   await exec('DELETE FROM sessions WHERE token = ?', [value])
+}
+
+export async function changePassword({ userId, currentPassword, newPassword }) {
+  const current = String(currentPassword ?? '')
+  const next = String(newPassword ?? '')
+  if (!current || !next) throw new Error('Current and new passwords are required')
+  if (next.length < 8) throw new Error('New password must be at least 8 characters')
+  if (current === next) throw new Error('New password must be different from the current password')
+
+  const user = await get('SELECT id, password_hash FROM users WHERE id = ?', [userId])
+  if (!user) {
+    const error = new Error('User not found')
+    error.status = 404
+    throw error
+  }
+  if (!verifyPassword(current, user.password_hash)) {
+    const error = new Error('Current password is incorrect')
+    error.status = 401
+    throw error
+  }
+
+  await exec('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(next), user.id])
 }
 
 export async function loginUser({ username, password }) {

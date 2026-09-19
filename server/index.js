@@ -15,6 +15,7 @@ import {
   listProducts,
   listRolePermissions,
   listSales,
+  changePassword,
   loginUser,
   logoutUser,
   ready,
@@ -115,6 +116,18 @@ app.get(
   '/api/me',
   requireUser(async (req, res) => {
     res.json(req.user)
+  }),
+)
+
+app.post(
+  '/api/change-password',
+  requireUser(async (req, res) => {
+    await changePassword({
+      userId: req.user.id,
+      currentPassword: req.body?.currentPassword,
+      newPassword: req.body?.newPassword,
+    })
+    res.status(204).end()
   }),
 )
 
