@@ -5,6 +5,7 @@ import { formatMoney } from '../format'
 import { getEmployee, listEmployees, listProducts, listSales, recordSale, updateSale, deleteSale } from '../services/salesStore'
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { currentMonthValue, datesInMonth, monthLabel, previousMonthValue } from '../exportMonth'
 import { isAttendanceProduct, isBalanceProduct, isLoadingProduct, isRouteProduct, balanceAmount, loadingAmount, monthOverallNet, saleOverallNet, saleOverallTotal } from '../productFlags'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
@@ -24,14 +25,18 @@ const ATTENDANCE_LABEL: Record<Attendance, string> = {
 const ROUTE_COUNTS = [1, 2, 3, 4, 5]
 const PERSON_COUNTS = [1, 2, 3, 4, 5]
 
-type RouteTripDraft = { persons: number; ids: string[] }
+type RouteTripDraft = { persons: number; ids: string[]; portion: 'full' | 'half' }
 
 function resizeTrips(trips: RouteTripDraft[], count: number): RouteTripDraft[] {
-  return Array.from({ length: count }, (_, index) => trips[index] ?? { persons: 1, ids: [] })
+  return Array.from({ length: count }, (_, index) => trips[index] ?? { persons: 1, ids: [], portion: 'full' })
+}
+
+function tripPortion(trip: { persons: number; portion?: 'full' | 'half' }) {
+  return trip.persons === 1 && trip.portion === 'half' ? 0.5 : 1
 }
 
 function tripShare(trips: RouteTripDraft[]) {
-  return trips.reduce((sum, trip) => sum + 1 / Math.max(1, trip.persons), 0)
+  return trips.reduce((sum, trip) => sum + tripPortion(trip) / Math.max(1, trip.persons), 0)
 }
 
 function creditedRoutes(sale: SaleRecord | null | undefined) {
@@ -40,7 +45,11 @@ function creditedRoutes(sale: SaleRecord | null | undefined) {
 
 function savedTrips(sale: SaleRecord, products: Product[]): RouteTripDraft[] {
   if (sale.routeTrips?.length) {
-    return sale.routeTrips.map((trip) => ({ persons: Math.max(1, trip.persons), ids: [...trip.ids] }))
+    return sale.routeTrips.map((trip) => ({
+      persons: Math.max(1, trip.persons),
+      ids: [...trip.ids],
+      portion: trip.portion === 'half' ? 'half' : 'full',
+    }))
   }
   const routeProduct = products.find((product) => isRouteProduct(product))
   const lineQty = sale.lines.find((line) => line.productId === routeProduct?.id)?.quantity ?? 0
@@ -49,7 +58,7 @@ function savedTrips(sale: SaleRecord, products: Product[]): RouteTripDraft[] {
   if (count < 1) return []
   const persons = Math.max(1, sale.routePersonCount ?? 1)
   const ids = (sale.routePersonId ?? '').split(',').map((id) => id.trim()).filter(Boolean)
-  return Array.from({ length: count }, () => ({ persons, ids: [...ids] }))
+  return Array.from({ length: count }, () => ({ persons, ids: [...ids], portion: 'full' as const }))
 }
 
 function tripSummary(trips: RouteTripDraft[] | SaleRecord['routeTrips']) {
@@ -57,7 +66,8 @@ function tripSummary(trips: RouteTripDraft[] | SaleRecord['routeTrips']) {
   return trips
     .map((trip, index) => {
       const names = 'names' in trip && trip.names?.length ? trip.names : null
-      return `R${index + 1}: ${names ? `with ${names.join(', ')}` : 'alone'}`
+      const half = trip.persons === 1 && trip.portion === 'half'
+      return `R${index + 1}: ${half ? 'half ' : ''}${names ? `with ${names.join(', ')}` : 'alone'}`
     })
     .join(' · ')
 }
@@ -97,6 +107,7 @@ export function RecordSalesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [month, setMonth] = useState(currentMonthValue)
 
   const canRecord = hasPermission(user, 'recordSales')
@@ -107,6 +118,18 @@ export function RecordSalesPage() {
 
   async function refreshHistory(id: string) {
     setHistory(await listSales(id))
+  }
+
+  async function confirmDelete() {
+    if (!confirmDeleteId || !employeeId) return
+    setDeletingId(confirmDeleteId)
+    try {
+      await deleteSale(confirmDeleteId)
+      setConfirmDeleteId(null)
+      await refreshHistory(employeeId)
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   useEffect(() => {
@@ -210,7 +233,11 @@ export function RecordSalesPage() {
       ),
       expenses: Number(expenses || 0),
       recordedBy: user?.name ?? 'Unknown',
-      routeTrips: routeTrips.map((trip) => ({ persons: trip.persons, ids: trip.ids.filter(Boolean) })),
+      routeTrips: routeTrips.map((trip) => ({
+        persons: trip.persons,
+        ids: trip.ids.filter(Boolean),
+        portion: trip.portion,
+      })),
     }
     const unfinished = payload.routeTrips.findIndex((trip) => trip.ids.length !== trip.persons - 1)
     if (unfinished >= 0) {
@@ -328,7 +355,10 @@ export function RecordSalesPage() {
                         <span className="muted"> · enter rupees; subtracted from net earned</span>
                       )}
                       {isRouteProduct(product) && (
-                        <span className="muted"> · each route split by the persons on that route</span>
+                        <span className="muted">
+                          {' '}
+                          · split by the persons on that route. One person can take full or half amount.
+                        </span>
                       )}
                     </td>
                     {showAmounts && (
@@ -375,7 +405,12 @@ export function RecordSalesPage() {
                                   setRouteTrips((current) =>
                                     current.map((item, index) =>
                                       index === tripIndex
-                                        ? { persons, ids: item.ids.slice(0, persons - 1) }
+                                        ? {
+                                            ...item,
+                                            persons,
+                                            ids: item.ids.slice(0, persons - 1),
+                                            portion: persons === 1 ? item.portion : 'full',
+                                          }
                                         : item,
                                     ),
                                   )
@@ -388,6 +423,23 @@ export function RecordSalesPage() {
                                 ))}
                               </select>
                               <span className="muted">persons</span>
+                              {trip.persons === 1 && (
+                                <select
+                                  value={trip.portion}
+                                  disabled={fieldsLocked || actionBusy}
+                                  onChange={(e) => {
+                                    const portion = e.target.value === 'half' ? 'half' : 'full'
+                                    setRouteTrips((current) =>
+                                      current.map((item, index) =>
+                                        index === tripIndex ? { ...item, portion } : item,
+                                      ),
+                                    )
+                                  }}
+                                >
+                                  <option value="full">Full amount</option>
+                                  <option value="half">Half amount</option>
+                                </select>
+                              )}
                               {Array.from({ length: trip.persons - 1 }).map((_, slot) => (
                                 <select
                                   key={slot}
@@ -424,7 +476,7 @@ export function RecordSalesPage() {
                               ))}
                               {showAmounts && (
                                 <span className="muted route-share">
-                                  {formatMoney(product.rate / trip.persons)} each
+                                  {formatMoney((product.rate * tripPortion(trip)) / trip.persons)} each
                                 </span>
                               )}
                             </div>
@@ -619,15 +671,7 @@ export function RecordSalesPage() {
                     type="button"
                     className="danger"
                     disabled={saving || Boolean(deletingId)}
-                    onClick={async () => {
-                      setDeletingId(sale.id)
-                      try {
-                        await deleteSale(sale.id)
-                        await refreshHistory(employeeId!)
-                      } finally {
-                        setDeletingId(null)
-                      }
-                    }}
+                    onClick={() => setConfirmDeleteId(sale.id)}
                   >
                     {deletingId === sale.id ? 'Removing…' : 'Delete'}
                   </button>
@@ -708,6 +752,17 @@ export function RecordSalesPage() {
           })
         )}
       </article>
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Delete this entry?"
+          message={`Delete the sales entry for ${history.find((sale) => sale.id === confirmDeleteId)?.date ?? 'this day'}? This cannot be undone.`}
+          busy={deletingId === confirmDeleteId}
+          onCancel={() => {
+            if (!deletingId) setConfirmDeleteId(null)
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      )}
       {popup && (
         <div className="popup-backdrop" onClick={() => setPopup('')}>
           <div className="popup-card" onClick={(event) => event.stopPropagation()}>

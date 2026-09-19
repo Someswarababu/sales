@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { addProduct, deleteProduct, listProducts, saveProductRates } from '../services/salesStore'
 import { PageLoader } from '../components/PageLoader'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { isBalanceProduct, isLoadingProduct } from '../productFlags'
 import type { Product } from '../types'
 
@@ -13,6 +14,7 @@ export function ProductsPage() {
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [unit, setUnit] = useState('')
   const [rate, setRate] = useState('1')
@@ -64,6 +66,7 @@ export function ProductsPage() {
     setRemovingId(id)
     try {
       await deleteProduct(id)
+      setConfirmId(null)
       setSaved(false)
       await refresh()
     } catch (err) {
@@ -126,7 +129,7 @@ export function ProductsPage() {
                         type="button"
                         className="danger"
                         disabled={Boolean(removingId) || saving || adding}
-                        onClick={() => onRemove(product.id)}
+                        onClick={() => setConfirmId(product.id)}
                       >
                         {removingId === product.id ? 'Removing…' : 'Remove'}
                       </button>
@@ -180,6 +183,18 @@ export function ProductsPage() {
           </div>
         </form>
       </section>
+      {confirmId && (
+        <ConfirmDialog
+          title="Remove product?"
+          message={`Remove ${products.find((item) => item.id === confirmId)?.name ?? 'this product'}? This cannot be undone.`}
+          confirmLabel="Remove"
+          busy={removingId === confirmId}
+          onCancel={() => {
+            if (!removingId) setConfirmId(null)
+          }}
+          onConfirm={() => onRemove(confirmId)}
+        />
+      )}
     </section>
   )
 }

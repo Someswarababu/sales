@@ -40,6 +40,7 @@ export type RouteTrip = {
   persons: number
   ids: string[]
   names?: string[]
+  portion?: 'full' | 'half'
 }
 
 export type RouteCredit = {

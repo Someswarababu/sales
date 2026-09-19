@@ -499,6 +499,7 @@ function parseRouteTrips(value) {
   return raw.map((trip) => ({
     persons: Math.max(1, Math.round(Number(trip?.persons ?? trip?.personCount ?? 1) || 1)),
     ids: parsePersonIds(Array.isArray(trip?.ids) ? trip.ids.join(',') : trip?.ids),
+    portion: String(trip?.portion ?? '').toLowerCase() === 'half' ? 'half' : 'full',
   }))
 }
 
@@ -574,6 +575,7 @@ async function attachLines(sales) {
       routeTrips: (tripsBySale.get(sale.id) ?? []).map((trip) => ({
         persons: trip.persons,
         ids: trip.ids,
+        portion: trip.portion,
         names: trip.ids.map((id) => nameById.get(id) || id),
       })),
       routeCredits: creditsByKey.get(`${sale.employee_id}|${sale.date}`) ?? [],
@@ -683,7 +685,8 @@ async function buildSaleRecord({
       if (companions.length !== trip.persons - 1) {
         throw new Error(`Select ${trip.persons - 1} person(s) who went on route ${index + 1}`)
       }
-      const share = 1 / trip.persons
+      const portion = trip.persons === 1 && trip.portion === 'half' ? 0.5 : 1
+      const share = portion / trip.persons
       ownRouteQty += share
       for (const id of companions) tripShares.set(id, (tripShares.get(id) ?? 0) + share)
     })

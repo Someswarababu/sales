@@ -6,6 +6,7 @@ import { formatMoney } from '../format'
 import { addEmployee, deleteEmployee, listEmployees } from '../services/salesStore'
 import { currentMonthValue, monthLabel } from '../exportMonth'
 import { PageLoader } from '../components/PageLoader'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { Employee } from '../types'
 
 export function EmployeesPage() {
@@ -21,6 +22,7 @@ export function EmployeesPage() {
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const month = currentMonthValue()
 
@@ -55,6 +57,7 @@ export function EmployeesPage() {
     setRemovingId(id)
     try {
       await deleteEmployee(id)
+      setConfirmId(null)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove employee')
@@ -115,7 +118,7 @@ export function EmployeesPage() {
                         type="button"
                         className="danger"
                         disabled={removingId === employee.id || adding}
-                        onClick={() => onRemove(employee.id)}
+                        onClick={() => setConfirmId(employee.id)}
                       >
                         {removingId === employee.id ? 'Removing…' : 'Delete'}
                       </button>
@@ -147,6 +150,17 @@ export function EmployeesPage() {
             </div>
           </form>
         </section>
+      )}
+      {confirmId && (
+        <ConfirmDialog
+          title="Delete employee?"
+          message={`Delete ${employees.find((item) => item.id === confirmId)?.name ?? 'this employee'}? Their sales records will also be removed.`}
+          busy={removingId === confirmId}
+          onCancel={() => {
+            if (!removingId) setConfirmId(null)
+          }}
+          onConfirm={() => onRemove(confirmId)}
+        />
       )}
     </section>
   )
