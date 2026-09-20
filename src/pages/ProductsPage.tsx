@@ -15,12 +15,17 @@ export function ProductsPage() {
   const [adding, setAdding] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [savedList, setSavedList] = useState<Product[]>([])
   const [name, setName] = useState('')
   const [unit, setUnit] = useState('')
   const [rate, setRate] = useState('1')
 
   async function refresh() {
-    setProducts(await listProducts())
+    const list = await listProducts()
+    setProducts(list)
+    setSavedList(list)
+    setEditingId(null)
   }
 
   useEffect(() => {
@@ -35,6 +40,8 @@ export function ProductsPage() {
     setSaving(true)
     try {
       await saveProductRates(products)
+      setSavedList(products)
+      setEditingId(null)
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save rates')
@@ -83,7 +90,8 @@ export function ProductsPage() {
         <p className="muted">
           Each sale amount is quantity × rate. Day expenses are entered on the sales sheet, not per
           product. Loading is ₹1 per unit and is kept out of overall sales and net earned. Balance is
-          admin-only: enter an amount and it is subtracted once from that month’s net earned.
+          admin-only: enter an amount and it is subtracted once from that month’s net earned. Click
+          Edit to change a rate, then Save rates.
         </p>
         {loading ? (
           <PageLoader />
@@ -113,6 +121,7 @@ export function ProductsPage() {
                         min={1}
                         step={1}
                         value={product.rate}
+                        disabled={editingId !== product.id || saving || adding || Boolean(removingId)}
                         onChange={(e) => {
                           const nextRate = Number(e.target.value)
                           setSaved(false)
@@ -124,15 +133,43 @@ export function ProductsPage() {
                         }}
                       />
                     </td>
-                    <td data-label="">
+                    <td>
+                      <div className="actions">
+                      {editingId === product.id ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={saving || adding || Boolean(removingId)}
+                          onClick={() => {
+                            setProducts(savedList)
+                            setEditingId(null)
+                            setSaved(false)
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={saving || adding || Boolean(removingId) || Boolean(editingId)}
+                          onClick={() => {
+                            setSaved(false)
+                            setEditingId(product.id)
+                          }}
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="danger"
-                        disabled={Boolean(removingId) || saving || adding}
+                        disabled={Boolean(removingId) || saving || adding || editingId === product.id}
                         onClick={() => setConfirmId(product.id)}
                       >
                         {removingId === product.id ? 'Removing…' : 'Remove'}
                       </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -140,7 +177,7 @@ export function ProductsPage() {
             </table>
             {error && <p className="error">{error}</p>}
             <div className="actions">
-              <button type="submit" disabled={saving || adding || Boolean(removingId)}>
+              <button type="submit" disabled={saving || adding || Boolean(removingId) || !editingId}>
                 {saving ? 'Saving…' : 'Save rates'}
               </button>
               {saved && <span className="muted">Saved. New sales will use these rates.</span>}

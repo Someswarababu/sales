@@ -18,6 +18,11 @@ export function currentMonthValue() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+export function todayDateValue() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
 export function previousMonthValue() {
   const now = new Date()
   const monthIndex = now.getMonth() === 0 ? 12 : now.getMonth()

@@ -1,4 +1,4 @@
-import { SESSION_TOKEN_KEY } from '../auth/session'
+import { SESSION_EXPIRED_EVENT, SESSION_TOKEN_KEY } from '../auth/session'
 import type { Employee, PermissionKey, Product, SaleRecord, SessionUser } from '../types'
 import { loadingLabelFor, startLoading, stopLoading } from './loading'
 
@@ -25,6 +25,9 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
 
     const body = await response.json().catch(() => ({}))
     if (!response.ok) {
+      if (response.status === 401 && !path.includes('/login')) {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+      }
       throw new Error(typeof body.error === 'string' ? body.error : 'Request failed')
     }
     return body as T

@@ -156,6 +156,7 @@ app.get(
           ? products
           : products.filter(
               (product) => product.id !== 'balance' && String(product.name).toLowerCase() !== 'balance',
+              
             ),
       )
     },

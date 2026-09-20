@@ -253,6 +253,18 @@ td {
   text-align: left;
   padding: 0.75rem 0.5rem;
   border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table input,
+table select {
+  margin-top: 0;
+  width: auto;
+  min-width: 6.5rem;
+  max-width: 8.5rem;
+}
+form > table {
+  display: table;
+  width: 100%;
 }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr { transition: background 0.12s ease; }
@@ -266,8 +278,7 @@ tbody tr:hover { background: var(--row-hover); }
 }
 .full { grid-column: 1 / -1; }
 .actions { display: flex; gap: 0.9rem; align-items: center; flex-wrap: wrap; }
-form .actions { margin-top: 0.15rem; }
-td.actions { margin-top: 0; }
+form > .actions { margin-top: 0.15rem; }
 
 .login-page {
   min-height: 100vh;

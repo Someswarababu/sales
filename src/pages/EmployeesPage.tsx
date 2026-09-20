@@ -109,7 +109,8 @@ export function EmployeesPage() {
                       )}
                     </td>
                   )}
-                  <td className="actions">
+                  <td>
+                    <div className="actions">
                     <Link to={`/employees/${employee.id}/sales`}>
                       {canRecord ? 'Enter sales' : 'View sales'}
                     </Link>
@@ -123,6 +124,7 @@ export function EmployeesPage() {
                         {removingId === employee.id ? 'Removing…' : 'Delete'}
                       </button>
                     )}
+                    </div>
                   </td>
                 </tr>
               ))}

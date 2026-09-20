@@ -6,7 +6,7 @@ import { getEmployee, listEmployees, listProducts, listSales, recordSale, update
 import { hasPermission } from '../auth/permissions'
 import { PageLoader } from '../components/PageLoader'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { currentMonthValue, datesInMonth, monthLabel, previousMonthValue } from '../exportMonth'
+import { currentMonthValue, datesInMonth, monthLabel, previousMonthValue, todayDateValue } from '../exportMonth'
 import { isAttendanceProduct, isBalanceProduct, isLoadingProduct, isRouteProduct, balanceAmount, loadingAmount, monthOverallNet, saleOverallNet, saleOverallTotal } from '../productFlags'
 import type { Attendance, Employee, Product, SaleRecord } from '../types'
 
@@ -93,7 +93,7 @@ export function RecordSalesPage() {
   const showAmounts = hasPermission(user, 'viewAmounts')
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [products, setProducts] = useState<Product[]>([])
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(todayDateValue)
   const [attendance, setAttendance] = useState<Attendance>('full')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [routeTrips, setRouteTrips] = useState<RouteTripDraft[]>([])
@@ -256,7 +256,7 @@ export function RecordSalesPage() {
       setExpenses('0')
       setAttendance('full')
       setEditingId(null)
-      setDate(new Date().toISOString().slice(0, 10))
+      setDate(todayDateValue())
       await refreshHistory(employeeId!)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save sales'
@@ -298,7 +298,7 @@ export function RecordSalesPage() {
     setError('')
     setAttendance('full')
     setExpenses('0')
-    setDate(new Date().toISOString().slice(0, 10))
+    setDate(todayDateValue())
     setQuantities(Object.fromEntries(products.map((product) => [product.id, ''])))
     setRouteTrips([])
   }

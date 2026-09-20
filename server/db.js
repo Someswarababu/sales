@@ -262,6 +262,11 @@ async function migrate() {
       created_at TEXT NOT NULL
     );
   `)
+  const sessionCols = await columns('sessions')
+  if (!sessionCols.includes('last_active_at')) {
+    await exec('ALTER TABLE sessions ADD COLUMN last_active_at TEXT')
+    await exec('UPDATE sessions SET last_active_at = created_at WHERE last_active_at IS NULL')
+  }
   const managerAccess = await get('SELECT role FROM role_permissions WHERE role = ?', ['manager'])
   if (!managerAccess) {
     await exec('INSERT INTO role_permissions (role, permissions) VALUES (?, ?)', [
@@ -1008,18 +1013,23 @@ export async function saveRolePermissions(role, permissions) {
   return listRolePermissions()
 }
 
+const SESSION_IDLE_MS = 30 * 60 * 1000
+
 export async function getUserByToken(token) {
   const value = String(token ?? '').trim()
   if (!value) return null
-  const session = await get('SELECT user_id FROM sessions WHERE token = ?', [value])
+  const session = await get(
+    'SELECT user_id, created_at, last_active_at FROM sessions WHERE token = ?',
+    [value],
+  )
   if (!session) return null
+  const lastActive = new Date(session.last_active_at || session.created_at).getTime()
+  if (!Number.isFinite(lastActive) || Date.now() - lastActive > SESSION_IDLE_MS) {
+    await exec('DELETE FROM sessions WHERE token = ?', [value])
+    return null
+  }
+  await exec('UPDATE sessions SET last_active_at = ? WHERE token = ?', [new Date().toISOString(), value])
   const user = await get('SELECT id, name, username, role FROM users WHERE id = ?', [session.user_id])
-  if (!user) return null
-  return publicUser(user, await getPermissionsForRole(user.role))
-}
-
-export async function getSessionUser(userId) {
-  const user = await get('SELECT id, name, username, role FROM users WHERE id = ?', [userId])
   if (!user) return null
   return publicUser(user, await getPermissionsForRole(user.role))
 }
@@ -1068,10 +1078,12 @@ export async function loginUser({ username, password }) {
   }
   await exec('DELETE FROM sessions WHERE user_id = ?', [user.id])
   const token = randomBytes(32).toString('hex')
-  await exec('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)', [
+  const now = new Date().toISOString()
+  await exec('INSERT INTO sessions (token, user_id, created_at, last_active_at) VALUES (?, ?, ?, ?)', [
     token,
     user.id,
-    new Date().toISOString(),
+    now,
+    now,
   ])
   return {
     ...publicUser(user, await getPermissionsForRole(user.role)),
